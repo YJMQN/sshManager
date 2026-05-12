@@ -1,79 +1,65 @@
 @echo off
-chcp 65001 >nul
-title SSH Manager - Go Build
+title SSH Manager Build
 color 0A
-REM ============================================================
-REM SSH Manager — 一键构建脚本
-REM 用法: build.bat [--release]
-REM --release: 启用 UPX 压缩、嵌入版本信息
-REM ============================================================
 
-setlocal enabledelayedexpansion
-
-echo.
-echo ╔═══════════════════════════════════════╗
-echo ║   SSH Manager  Go Build              ║
-echo ╚═══════════════════════════════════════╝
+echo ==============================
+echo   SSH Manager Build Script
+echo ==============================
 echo.
 
-:check_go
+:: Check Go
 where go >nul 2>nul
 if %ERRORLEVEL% neq 0 (
-    echo [ERROR] Go not found. Install Go 1.20:
-    echo         https://go.dev/dl/go1.20.14.windows-amd64.msi
+    echo [ERROR] Go not found.
     pause
     exit /b 1
 )
-echo [INFO] Go version:
+echo [OK] Go found
 go version
 echo.
 
-:: ---- Step 1: Environment ----
+:: Step 1
 echo [1/5] Setting Go proxy...
 go env -w GO111MODULE=on
 go env -w GOPROXY=https://goproxy.cn,direct
-echo        GOPROXY = https://goproxy.cn
-
-:: ---- Step 2: Generate resources (icon + manifest) ----
 echo.
-echo [2/5] Embedding resources (icon + manifest)...
+
+:: Step 2
+echo [2/5] Embedding resources...
 where windres >nul 2>nul
 if %ERRORLEVEL% equ 0 (
     pushd assets
     windres -o ..\app.syso -i app.rc
     popd
     if %ERRORLEVEL% equ 0 (
-        echo       [OK] app.syso generated from assets/
+        echo [OK] app.syso generated
     ) else (
-        echo       [WARN] windres failed
+        echo [WARN] windres failed
     )
 ) else (
-    echo       [WARN] windres not found (install TDM-GCC for static linking)
+    echo [WARN] windres not found
 )
 echo.
 
-:: ---- Step 3: Download dependencies ----
+:: Step 3
 echo [3/5] Downloading dependencies...
 go mod tidy
 if %ERRORLEVEL% neq 0 (
-    echo [ERROR] Dependency download failed
+    echo [ERROR] go mod tidy failed
     pause
     exit /b 1
 )
-echo       [OK]
-
-:: ---- Step 4: Compile ----
+echo [OK] Dependencies ready
 echo.
-echo [4/5] Compiling (static link MinGW)...
+
+:: Step 4
+echo [4/5] Compiling...
 set CGO_ENABLED=1
 if not exist dist mkdir dist
 
-set LDFLAGS=-s -w -H windowsgui -extldflags=-static
-if "%1"=="--release" set LDFLAGS=-s -w -H windowsgui -extldflags=-static -X main.version=1.0
-
-go build -ldflags="%LDFLAGS%" -o dist\SSHManager.exe .
+go build -ldflags="-s -w -H windowsgui -extldflags=-static" -o dist\SSHManager.exe .
 if %ERRORLEVEL% neq 0 (
-    echo       [WARN] Static link failed, trying dynamic...
+    echo [WARN] Static link failed, trying dynamic...
     go build -ldflags="-s -w -H windowsgui" -o dist\SSHManager.exe .
     if %ERRORLEVEL% neq 0 (
         echo [ERROR] Build failed
@@ -81,46 +67,23 @@ if %ERRORLEVEL% neq 0 (
         exit /b 1
     )
 )
-echo       [OK] dist\SSHManager.exe
+echo [OK] Build done
+echo.
 
-:: ---- Step 5: Compress (UPX, optional) ----
-if "%1"=="--release" (
-    echo.
-    echo [5/5] Compressing with UPX...
-    where upx >nul 2>nul
-    if %ERRORLEVEL% equ 0 (
-        upx --best dist\SSHManager.exe >nul 2>&1
-        echo       [OK] UPX compression done
-    ) else (
-        echo       [SKIP] UPX not installed
-    )
+:: Step 5
+echo [5/5] Compressing (optional)...
+where upx >nul 2>nul
+if %ERRORLEVEL% equ 0 (
+    upx --best dist\SSHManager.exe >nul 2>&1
+    echo [OK] UPX done
 ) else (
-    echo.
-    echo [5/5] Skipping compression. Use build.bat --release for UPX.
+    echo [SKIP] UPX not found
 )
+echo.
 
-:: ---- Done ----
-call :show_size dist\SSHManager.exe
-echo.
-echo ========================================
-echo   DONE!
-echo   Output: %cd%\dist\SSHManager.exe
-echo ========================================
-echo.
+:: Done
+echo ==============================
+echo   Done!
+echo   Output: dist\SSHManager.exe
+echo ==============================
 pause
-goto :eof
-
-:show_size
-if exist %1 (
-    for %%I in (%1) do (
-        set sz=%%~zI
-        set /a skb=sz/1024
-        if !skb! geq 1024 (
-            set /a smb=skb/1024
-            echo   File size: !smb! MB (!skb! KB)
-        ) else (
-            echo   File size: !skb! KB
-        )
-    )
-)
-goto :eof
