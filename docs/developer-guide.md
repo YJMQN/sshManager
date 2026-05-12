@@ -99,7 +99,7 @@ go mod tidy
 
 :: 3. 编译（推荐静态链接）
 set CGO_ENABLED=1
-go build -ldflags="-s -w -H windowsgui -static" -o dist\SSHManager.exe .
+go build -ldflags="-s -w -H windowsgui -extldflags=-static" -o dist\SSHManager.exe .
 
 :: 4. （可选）UPX 压缩
 upx --best dist\SSHManager.exe

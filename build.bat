@@ -72,7 +72,7 @@ set CGO_ENABLED=1
 if not exist dist mkdir dist
 
 :: 先用静态链接尝试
-go build -ldflags="-s -w -H windowsgui -static" -o dist\SSHManager.exe .
+go build -ldflags="-s -w -H windowsgui -extldflags=-static" -o dist\SSHManager.exe .
 if %ERRORLEVEL% neq 0 (
     echo       ⚠️ 静态链接失败，尝试动态链接...
     go build -ldflags="-s -w -H windowsgui" -o dist\SSHManager.exe .
