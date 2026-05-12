@@ -9,19 +9,6 @@ import (
 	. "github.com/lxn/walk/declarative"
 )
 
-var (
-	db               *Database
-	mainWnd          *walk.MainWindow
-	connTV           *walk.TableView
-	scriptTV         *walk.TableView
-	statusLabel      *walk.Label
-	connCountLabel   *walk.Label
-	scriptCountLabel *walk.Label
-	quickCmdInput    *walk.LineEdit
-	quickConnLabel   *walk.Label
-	connSearchInput  *walk.LineEdit
-)
-
 func main() {
 	// Init DB in exe directory
 	exe, _ := os.Executable()
@@ -35,6 +22,8 @@ func main() {
 	}
 	defer db.Close()
 
+	testedOK = make(map[int64]bool)
+
 	// Load initial data
 	refreshConnData()
 	refreshScriptData()
@@ -42,7 +31,7 @@ func main() {
 	// Load icon from embedded resource (ID 100 from app.rc)
 	appIcon, err := walk.NewIconFromResourceId(100)
 	if err != nil {
-		appIcon = nil // silently ignore, window will have no icon
+		appIcon = nil
 	}
 
 	if _, err := (MainWindow{

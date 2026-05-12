@@ -1,20 +1,25 @@
-# Compiled output
+# === Build artifacts ===
 dist/
 *.exe
 *.syso
 
-# OS junk
+# === OS junk ===
 .DS_Store
 Thumbs.db
 Desktop.ini
-
-# IDE
-.vscode/
-.idea/
+ehthumbs.db
 *.swp
 *.swo
 
-# Database (user data, never commit)
+# === IDE ===
+.vscode/
+.idea/
+*.iml
+
+# === User data (never commit) ===
 *.db
 *.db-wal
 *.db-shm
+
+# === Temp ===
+/tmp/

@@ -1,6 +1,6 @@
 # 开发者文档
 
-> SSH Manager 技术架构、开发环境搭建、项目结构及二次开发指南
+> SSH Manager — 技术架构、开发环境搭建、项目结构及二次开发指南
 
 ---
 
@@ -10,10 +10,10 @@
 |------|------|------|
 | 语言 | **Go 1.20** | Win7 最后支持的 Go 版本 |
 | GUI 框架 | **Walk** (github.com/lxn/walk) | 原生 Win32 GUI，无 Web 包袱 |
-| 数据库 | **SQLite** (modernc.org/sqlite) | 纯 Go 实现，零 CGo 依赖 |
+| 数据库 | **SQLite** (github.com/mattn/go-sqlite3) | CGO 版，单文件数据库 |
 | SSH 客户端 | **golang.org/x/crypto/ssh** | 标准 SSH 库 |
 | 编译器 | **TDM-GCC 10.3.0** (MinGW-w64) | Windows 原生编译 |
-| 打包压缩 | **UPX** (可选) | 减小 exe 体积 |
+| 压缩 | **UPX** (可选) | 减小 exe 体积 |
 
 ---
 
@@ -21,32 +21,23 @@
 
 ### Windows 环境
 
-#### 1. 安装 Go 1.20
-
-下载 [Go 1.20.14](https://go.dev/dl/go1.20.14.windows-amd64.msi) 安装。
-
-#### 2. 安装 TDM-GCC
-
-下载 [TDM-GCC 10.3.0](https://jmeubank.github.io/tdm-gcc/)，安装时确保勾选"Add to PATH"。
-
-验证安装：
-
 ```cmd
-go version     :: 需显示 go1.20.x
-gcc --version  :: 需显示 10.3.0
+:: 1. 安装 Go 1.20
+::    下载 https://go.dev/dl/go1.20.14.windows-amd64.msi
+
+:: 2. 安装 TDM-GCC 10.3.0（含 windres）
+::    下载 https://jmeubank.github.io/tdm-gcc/
+
+:: 3. 验证
+go version         → go1.20.x
+gcc --version      → 10.3.0
 windres --version
-```
 
-#### 3. 设置国内镜像（可选）
-
-```cmd
+:: 4. 设置国内镜像（可选）
 go env -w GO111MODULE=on
 go env -w GOPROXY=https://goproxy.cn,direct
-```
 
-#### 4. 克隆项目
-
-```cmd
+:: 5. 克隆
 git clone https://gitee.com/yjmqn/ssh-manager.git
 cd ssh-manager
 ```
@@ -57,145 +48,179 @@ cd ssh-manager
 
 ```
 ssh-manager/
-├── main.go          # 入口：MainWindow 构建、菜单、关于
-├── models.go        # 数据模型、表数据源、缓存、测试状态
-├── db.go            # SQLite 数据库操作
-├── ssh.go           # SSH 客户端封装（连接、执行）
 │
-├── ui_panels.go     # 主窗口面板布局（连接表、脚本表）
-├── ui_actions.go    # 增删改查对话框（连接、脚本）
-├── ui_execute.go    # 执行中心对话框（支持脚本 + 命令模式）
-├── ui_history.go    # 执行历史对话框
+├── main.go                # 入口：数据库初始化、窗口创建、菜单
+├── app.go                 # 全局变量 + 共享工具函数
+├── models.go              # 数据模型 + 表格数据缓存 + 刷新
+├── db.go                  # SQLite 持久层
+├── ssh.go                 # SSH 客户端封装
 │
-├── app.rc           # Windows 资源脚本（清单 + 图标）
-├── app.manifest     # Windows 通用控件清单（Win7 兼容）
-├── app.ico          # 程序图标
-├── mkicon.py        # 图标生成脚本（可选）
+├── ui_panels.go           # 主窗口面板布局
+├── ui_actions.go          # 连接/脚本 CRUD 对话框
+├── ui_execute.go          # 执行中心 + 快捷命令
+├── ui_history.go          # 执行历史对话框
+├── ui_filebrowser.go      # 远程文件浏览器
 │
-├── build.bat        # 一键构建脚本
-├── go.mod / go.sum  # Go 模块依赖
-├── README.md        # 用户文档
+├── assets/                # 资源文件
+│   ├── app.ico            # 程序图标
+│   ├── app.rc             # Windows 资源脚本
+│   └── app.manifest       # 通用控件清单（Win7 兼容）
 │
-└── docs/
-    └── developer-guide.md  # 开发者文档（本文件）
+├── scripts/
+│   └── mkicon.py          # 图标生成脚本
+│
+├── tests/                 # 测试文件目录
+│
+├── docs/
+│   ├── developer-guide.md # 本文件
+│   └── architecture.md    # 架构设计文档
+│
+├── dist/                  # 构建产物
+├── build.bat              # Windows 构建脚本
+├── build.sh               # Linux/macOS 交叉编译脚本
+├── go.mod / go.sum        # 模块依赖
+├── README.md              # 用户文档
+└── .gitignore
 ```
+
+### 文件命名约定
+
+| 前缀 | 含义 |
+|------|------|
+| `没有前缀` | 核心逻辑（db, ssh, models, main, app） |
+| `ui_*` | 界面相关（面板、对话框、文件浏览器） |
+| `assets/` | 编译期资源 |
+| `scripts/` | 开发辅助工具 |
+| `dist/` | 构建产物（gitignore） |
 
 ---
 
 ## 🔧 构建
 
-### 一键构建
-
-双击 `build.bat`，产物在 `dist/SSHManager.exe`。
-
-### 手动构建
+### Windows
 
 ```cmd
-:: 1. 生成资源文件（清单 + 图标）
-windres -o app.syso -i app.rc
+:: 一键构建
+build.bat
 
-:: 2. 下载依赖
+:: 或手动分步
+cd assets
+windres -o ..\app.syso -i app.rc
+cd ..
 go mod tidy
-
-:: 3. 编译（推荐静态链接）
 set CGO_ENABLED=1
 go build -ldflags="-s -w -H windowsgui -extldflags=-static" -o dist\SSHManager.exe .
-
-:: 4. （可选）UPX 压缩
-upx --best dist\SSHManager.exe
 ```
 
-### 跨平台构建说明
+### Linux/macOS (交叉编译)
 
-本项目仅支持 Windows 平台编译（依赖 Win32 API）。  
-在 Linux/macOS 上无法通过 CGo 编译 Walk 程序。
+```bash
+# 需要 MinGW-w64
+# Ubuntu: sudo apt install gcc-mingw-w64-x86-64
+chmod +x build.sh
+./build.sh          # debug
+./build.sh --release   # 发布版
+```
 
-如需在 CI 中构建，可使用 Windows runner。
+### 发布版
+
+```cmd
+build.bat --release
+```
+会自动启用 UPX 压缩，产物约 2~3MB。
 
 ---
 
-## 🧱 核心架构
-
-### 数据流
-
-```
-用户操作 -> 对话框（ui_*.go）-> db.go（SQLite）-> models.go（缓存 + TableModel）
-                                                        |
-                                                   ui_panels.go（TableView 渲染）
-```
-
-### 执行流程
-
-```
-执行中心 -> 选择连接 + 脚本/命令
-              |
-         ssh.go: Connect() -> SSH 握手
-              |
-         ssh.go: Execute() -> 远程执行
-              |
-         实时回调写入输出 TextEdit
-              |
-         db.go: AddHistory() / UpdateHistory() -> 记录执行历史
-```
+## 🧱 架构要点
 
 ### Walk TableView 数据绑定
 
-Walk 的 `TableView` 要求数据源为 `[]map[string]interface{}`。
+Walk `TableView` 要求数据源为 `[]map[string]interface{}`：
 
-- `models.go` 中的 `refreshConnData()` / `refreshScriptData()` 构建 map 数组
-- 列的 `DataMember` 必须匹配 map 的 key（已在 UI 定义中设置）
-- 额外数据（ID、密码等）通过 `connCache` / `scriptCache` 独立存储
-- 通过 `connCache[idx].ID` 从行索引反查数据库 ID
+```go
+// models.go — refreshConnData()
+connData[i] = map[string]interface{}{
+    "名称": c.Name,    // DataMember 必须匹配列标题
+    "主机": c.Host,
+}
+```
+
+额外数据（密码、密钥路径等）通过 `connCache[]` / `scriptCache[]` 独立存储，
+通过行索引反查。
 
 ### CellStyler 机制
 
-`ui_panels.go` 中使用 `StyleCell` 回调控制单元格样式：
-
-- **第 0 列（名称）**：测试通过 -> 文字变绿
-- **第 5 列（操作）**：蓝色链接样式
-
 ```go
 StyleCell: func(style *walk.CellStyle) {
+    // 第 5 列（操作）：蓝色链接
     if col == 5 {
         style.TextColor = walk.RGB(0, 100, 200)
         return
     }
+    // 第 0 列（名称）：测试通过变绿
     if col == 0 && isTestedOK(connCache[row].ID) {
         style.TextColor = walk.RGB(0, 128, 0)
     }
 }
 ```
 
+### 多线程安全
+
+- `connMu` / `scriptMu`：保护表格数据 + 缓存的读写
+- `testedOKMu`：保护测试状态映射
+- SSH 执行在 goroutine 中，UI 更新通过 Walk 自动同步
+
+### 文件间依赖
+
+```
+main.go
+  ├── app.go (globals)
+  ├── models.go (data)
+  ├── db.go (persistence)
+  ├── ssh.go (SSH)
+  ├── ui_panels.go
+  │     └── ui_actions.go
+  │     └── ui_execute.go
+  │     └── ui_history.go
+  │     └── ui_filebrowser.go
+```
+
+所有 `ui_*.go` 共享 `app.go` 中的全局变量和 `models.go` 中的数据缓存。
+
 ---
 
 ## 🧪 测试
 
-目前项目无单元测试框架，手动测试可通过：
+手动测试流程：
 
-1. **连接测试**：添加一个已知可达的 SSH 服务器，点击测试
-2. **执行测试**：选择连接后执行 `echo hello` 或 `whoami`
-3. **历史验证**：执行后检查历史记录是否完整
+1. **连接测试**：添加可达的 SSH 服务器 → 点测试 → 名称变绿
+2. **执行测试**：选连接 → 底部敲 `echo hello` → 回车 → 看状态栏
+3. **文件浏览**：选连接 → 点 📂 文件 → 双击目录进入
+4. **历史验证**：执行后检查执行历史完整性
 
 ---
 
-## 📝 二次开发指南
+## 📝 二次开发
 
-### 添加新功能
+### 添加新功能步骤
 
-1. **新增数据库表** -> 在 `db.go` 中添加 SQL DDL 和 CRUD 方法
-2. **新增模型** -> 在 `models.go` 中添加 struct + 缓存 + refresh 函数
-3. **新增 UI 面板** -> 在 `ui_*.go` 中添加对话框或面板布局
-4. **注册入口** -> 在 `main.go` 或 `ui_panels.go` 中添加按钮/菜单
+1. **新增数据库表** → `db.go` 加 DDL + CRUD
+2. **新增模型** → `models.go` 加 struct + 缓存 + refresh
+3. **新增 UI** → 新建 `ui_*.go`，引用 app.go 中的全局变量
+4. **注册入口** → `ui_panels.go` 加按钮或 main.go 加菜单
 
 ### Walk 资源
 
-- [Walk 官方文档](https://github.com/lxn/walk)
-- [Walk 示例代码](https://github.com/lxn/walk/tree/master/examples)
+- [Walk 仓库](https://github.com/lxn/walk)
+- [Walk 示例](https://github.com/lxn/walk/tree/master/examples)
 - [Go 1.20 标准库](https://pkg.go.dev/std@go1.20)
 
-### 常见坑
+### 常见踩坑
 
-1. **Win7 兼容**：Go 1.20 是最后支持 Win7 的版本，Go 1.21+ 不再支持
-2. **Tooltip 初始化失败**：Walk 在某些 Win7 环境 `TTM_ADDTOOL` 会失败，已在应用层忽略该错误
-3. **`-static` 链接失败**：TDM-GCC 版本过旧可能导致，升级到 10.3.0 或改用 `-static-libgcc -static-libstdc++`
-4. **TableView 列显示**：必须设置 `DataMember` 匹配 map key，否则显示 `<nil>`
+| 问题 | 原因 | 解决 |
+|------|------|------|
+| Win7 闪退 | Go 1.20 以上不再支持 Win7 | 使用 Go 1.20 |
+| TDM-GCC 链接失败 | `-static` 不识别 | 用 `-extldflags=-static` |
+| 列显示 `<nil>` | map key 和 DataMember 不匹配 | 对齐两者名称 |
+| 空文件列表 | `.Run()` 阻塞无法初始化 | 改用 `.Create()` + 手动 `.Run()` |
+| 发送到错误 | walk 包 `TTM_ADDTOOL` 失败 | 应用层忽略，不修改 walk 源码 |
