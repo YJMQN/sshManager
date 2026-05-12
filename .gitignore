@@ -3,9 +3,6 @@ dist/
 *.exe
 *.syso
 
-# === User config (set via UI, never commit) ===
-config.json
-
 # === OS junk ===
 .DS_Store
 Thumbs.db

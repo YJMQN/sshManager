@@ -17,7 +17,7 @@ import (
 // Priority (high → low):
 //
 //	1. CLI arg:     --db-path=<path>
-//	2. Config file: config.json next to exe (set via UI)
+//	2. Registry:    HKCU\Software\SSH Manager\DBPath  (set via UI)
 //	3. Env var:     SSH_MANAGER_DB
 //	4. Default:     <exe_dir>/ssh_manager.db
 var dbPath string
@@ -115,7 +115,7 @@ func resolveDBPath() string {
 		}
 	}
 
-	// 2. Config file (set via UI)
+	// 2. Registry (set via UI)
 	cfg := loadConfig()
 	if cfg.DBPath != "" {
 		return ensureDir(cfg.DBPath)
@@ -175,7 +175,7 @@ func onSetDBPath() {
 					}},
 				},
 			},
-			Label{AssignTo: &statusLbl, Text: "更改后将重新加载数据库", TextColor: walk.RGB(128, 128, 128)},
+			Label{AssignTo: &statusLbl, Text: "更改后将重新加载数据库（保存到注册表）", TextColor: walk.RGB(128, 128, 128)},
 			Composite{
 				Layout: HBox{Spacing: 8},
 				Children: []Widget{
@@ -204,7 +204,7 @@ func onSetDBPath() {
 						db = newDB
 						dbPath = newPath
 
-						// Save to config
+						// Save to registry
 						_ = saveConfig(&Config{DBPath: newPath})
 
 						// Refresh all data
