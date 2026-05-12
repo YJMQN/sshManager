@@ -6,18 +6,18 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/lxn/walk"
 	. "github.com/lxn/walk/declarative"
 )
 
-// dbPath holds the current SQLite database path, resolved at startup
-// and updated when the user switches via the settings dialog.
+// dbPath holds the current SQLite database path.
 //
 // Priority:
 //
 //	1. CLI arg:       --db-path=<path>
-//	2. Config file:   %APPDATA%\SSH Manager\config.json  (set via UI)
+//	2. Config file:   %APPDATA%\SSH Manager\config.json  (via UI)
 //	3. Env var:       SSH_MANAGER_DB
 //	4. Default:       <exe_dir>/ssh_manager.db
 var dbPath string
@@ -25,14 +25,7 @@ var dbPath string
 func main() {
 	dbPath = resolveDBPath()
 
-	// ---- First launch? Ask for db path before showing main window ----
-	if !configExists() {
-		pickDBPathOnFirstLaunch()
-		// After dialog, re-resolve (config is now saved)
-		dbPath = resolveDBPath()
-	}
-
-	// ---- Open database ----
+	// Open database
 	var err error
 	db, err = NewDatabase(dbPath)
 	if err != nil {
@@ -48,10 +41,22 @@ func main() {
 
 	setStatus(fmt.Sprintf("📂 数据库: %s", dbPath))
 
-	// Load icon from embedded resource
+	// Load icon
 	appIcon, err := walk.NewIconFromResourceId(100)
 	if err != nil {
 		appIcon = nil
+	}
+
+	// ---- First launch: show setup dialog after main window is ready ----
+	if !configExists() {
+		go func() {
+			time.Sleep(200 * time.Millisecond)
+			mainWnd.Synchronize(func() {
+				if !configExists() {
+					onFirstLaunchSetup()
+				}
+			})
+		}()
 	}
 
 	if _, err := (MainWindow{
@@ -108,7 +113,7 @@ func main() {
 }
 
 // ============================================================
-// First-launch dialog (shown before main window)
+// First-launch setup (called after main window is visible)
 // ============================================================
 
 // configExists checks if the config file has a valid db_path.
@@ -117,16 +122,12 @@ func configExists() bool {
 	return cfg.DBPath != ""
 }
 
-// pickDBPathOnFirstLaunch shows a mandatory dialog on first launch.
-// The user must pick a path and confirm before continuing.
-func pickDBPathOnFirstLaunch() {
-	// Suggest a reasonable default
+func onFirstLaunchSetup() {
 	exe, _ := os.Executable()
 	defaultPath := filepath.Join(filepath.Dir(exe), "ssh_manager.db")
 
 	var dlg *walk.Dialog
 	var pathInput *walk.LineEdit
-	var statusLbl *walk.Label
 
 	_, err := Dialog{
 		AssignTo: &dlg,
@@ -150,13 +151,13 @@ func pickDBPathOnFirstLaunch() {
 						fd := new(walk.FileDialog)
 						fd.Title = "选择或新建数据库文件"
 						fd.Filter = "数据库文件 (*.db)|*.db|所有文件 (*.*)|*.*"
-						if ok, _ := fd.ShowSave(nil); ok {
+						if ok, _ := fd.ShowSave(mainWnd); ok {
 							pathInput.SetText(fd.FilePath)
 						}
 					}},
 				},
 			},
-			Label{AssignTo: &statusLbl, Text: "路径不存在会自动创建，可随时在菜单中更改",
+			Label{Text: "路径不存在会自动创建，可随时在菜单中更改",
 				TextColor: walk.RGB(128, 128, 128)},
 			Composite{
 				Layout: HBox{Spacing: 8},
@@ -168,26 +169,39 @@ func pickDBPathOnFirstLaunch() {
 							walk.MsgBox(dlg, "错误", "请输入数据库路径", walk.MsgBoxIconError)
 							return
 						}
-						// Verify it can be opened (creates if not exists)
-						testDB, err := NewDatabase(p)
+						// Verify and switch
+						newDB, err := NewDatabase(p)
 						if err != nil {
 							walk.MsgBox(dlg, "错误",
 								"无法创建/打开数据库: "+err.Error(), walk.MsgBoxIconError)
 							return
 						}
-						testDB.Close()
+
+						// Swap databases
+						db.Close()
+						db = newDB
+						dbPath = p
 
 						// Save config
 						_ = saveConfig(&Config{DBPath: p})
+
+						// Refresh UI
+						testedOK = make(map[int64]bool)
+						refreshConnData()
+						refreshScriptData()
+						updateCounts()
+						setStatus(fmt.Sprintf("📂 数据库: %s", dbPath))
+						mainWnd.SetTitle("SSH Manager — 远程脚本执行管理工具")
+
 						dlg.Accept()
 					}},
 				},
 			},
 		},
-	}.Run(nil)
+	}.Run(mainWnd)
 
 	if err != nil {
-		log.Fatalf("启动设置失败: %v", err)
+		walk.MsgBox(mainWnd, "错误", "启动设置失败: "+err.Error(), walk.MsgBoxIconError)
 	}
 }
 
@@ -222,7 +236,7 @@ func resolveDBPath() string {
 	return filepath.Join(filepath.Dir(exe), "ssh_manager.db")
 }
 
-// ensureDir ensures the parent directory exists and returns the path.
+// ensureDir ensures the parent directory exists.
 func ensureDir(p string) string {
 	dir := filepath.Dir(p)
 	if dir != "." && dir != "" {
@@ -232,7 +246,7 @@ func ensureDir(p string) string {
 }
 
 // ============================================================
-// UI: Set database path dialog (menu item)
+// UI: Change DB path dialog (menu item)
 // ============================================================
 
 func onSetDBPath() {
