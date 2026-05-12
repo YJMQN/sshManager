@@ -56,10 +56,9 @@ func main() {
 		appIcon = nil
 	}
 
-	if _, err := (MainWindow{
+	mw := MainWindow{
 		AssignTo: &mainWnd,
 		Title:    "SSH Manager — 远程脚本执行管理工具",
-		Icon:     appIcon,
 		MinSize:  Size{900, 550},
 		Size:     Size{1000, 620},
 		Layout:   VBox{MarginsZero: true},
@@ -104,7 +103,15 @@ func main() {
 			},
 			buildBottomBar(),
 		},
-	}.Run()); err != nil {
+	}
+
+	// Only set Icon if embedded icon resource was loaded successfully.
+	// Passing nil Icon to Walk causes a nil pointer panic.
+	if appIcon != nil {
+		mw.Icon = appIcon
+	}
+
+	if _, err := mw.Run(); err != nil {
 		log.Fatal(err)
 	}
 }
