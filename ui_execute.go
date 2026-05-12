@@ -304,6 +304,220 @@ func openExecuteDlgWithConn(connIdx int) {
 	}
 }
 
+func openQuickExecDlg() {
+	connIdx := connTV.CurrentIndex()
+	if connIdx < 0 {
+		walk.MsgBox(mainWnd, "提示", "请先选中一个连接", walk.MsgBoxIconInformation)
+		return
+	}
+
+	conns, _ := db.GetConnections()
+	scripts, _ := db.GetScripts()
+
+	if connIdx >= len(conns) {
+		return
+	}
+
+	conn := conns[connIdx]
+
+	scriptNames := make([]string, len(scripts))
+	for i, s := range scripts {
+		scriptNames[i] = s.Name
+	}
+	if len(scriptNames) == 0 {
+		scriptNames = []string{"(无可用脚本，请先在脚本管理中创建)"}
+	}
+
+	// Check if there are scripts available
+	hasScripts := len(scripts) > 0
+
+	var (
+		dlg       *walk.Dialog
+		scriptCB  *walk.ComboBox
+		outputTE  *walk.TextEdit
+		runBtn    *walk.PushButton
+		stopBtn   *walk.PushButton
+		statusLbl *walk.Label
+		mu        sync.Mutex
+		running   bool
+		cli       *SSHClient
+	)
+
+	writeOut := func(text string) {
+		if outputTE != nil {
+			outputTE.AppendText(text)
+		}
+	}
+
+	resetUI := func() {
+		runBtn.SetEnabled(true)
+		stopBtn.SetEnabled(false)
+		mu.Lock()
+		running = false
+		mu.Unlock()
+		if statusLbl != nil {
+			statusLbl.SetText("就绪")
+		}
+	}
+
+	_, err := Dialog{
+		AssignTo: &dlg,
+		Title:    fmt.Sprintf("⚡ 快速执行 — %s (%s:%d)", conn.Name, conn.Host, conn.Port),
+		MinSize:  Size{580, 420},
+		Layout:   VBox{Margins: Margins{10, 10, 10, 10}},
+		Children: []Widget{
+			// Connection info + Script selector
+			Composite{
+				Layout: HBox{Spacing: 8},
+				Children: []Widget{
+					Label{Text: "📡 主机:", Font: Font{PointSize: 10, Bold: true}},
+					Label{Text: fmt.Sprintf("%s (%s:%d)", conn.Name, conn.Host, conn.Port),
+						TextColor: walk.RGB(0, 80, 160)},
+					Label{Text: "    选择脚本:"},
+					ComboBox{
+						AssignTo:     &scriptCB,
+						Model:        scriptNames,
+						CurrentIndex: 0,
+						MinSize:      Size{180, 0},
+						Enabled:      hasScripts,
+					},
+				},
+			},
+			HSeparator{},
+			// Action buttons
+			Composite{
+				Layout: HBox{Spacing: 8},
+				Children: []Widget{
+					PushButton{AssignTo: &runBtn, Text: "▶ 执行", Enabled: hasScripts, OnClicked: func() {
+						if !hasScripts {
+							return
+						}
+						mu.Lock()
+						if running {
+							mu.Unlock()
+							return
+						}
+						running = true
+						mu.Unlock()
+
+						runBtn.SetEnabled(false)
+						stopBtn.SetEnabled(true)
+
+						scriptIdx := scriptCB.CurrentIndex()
+						if scriptIdx < 0 || scriptIdx >= len(scripts) {
+							writeOut("请选择有效的脚本\n")
+							resetUI()
+							return
+						}
+
+						script := scripts[scriptIdx]
+
+						hid, _ := db.AddHistory(&ExecHistory{
+							ConnectionID:   conn.ID,
+							ConnectionName: conn.Name,
+							ScriptID:       script.ID,
+							ScriptName:     script.Name,
+							Interpreter:    script.Interpreter,
+							Status:         "running",
+						})
+
+						outputTE.SetText("")
+						writeOut(fmt.Sprintf("===== %s =====\n", time.Now().Format("15:04:05")))
+						writeOut(fmt.Sprintf("▶ 连接: %s (%s:%d)\n", conn.Name, conn.Host, conn.Port))
+						writeOut(fmt.Sprintf("▶ 脚本: %s | 解释器: %s\n", script.Name, script.Interpreter))
+						writeOut(strings.Repeat("=", 50) + "\n")
+
+						statusLbl.SetText("⏳ 执行中...")
+						setStatus("⏳ 快速执行中...")
+
+						go func(c *Connection, s *Script, hID int64) {
+							startMs := time.Now().UnixMilli()
+							client := &SSHClient{}
+							mu.Lock()
+							cli = client
+							mu.Unlock()
+
+							var outBuf, errBuf strings.Builder
+
+							err := client.Connect(c.Host, c.Port, c.Username,
+								c.AuthType, c.Password, c.KeyPath, 10*time.Second)
+							if err != nil {
+								errMsg := fmt.Sprintf("❌ 连接失败: %v\n", err)
+								writeOut(errMsg)
+								db.UpdateHistory(hID, "error", "", err.Error(),
+									int(time.Now().UnixMilli()-startMs))
+								mu.Lock()
+								cli = nil
+								mu.Unlock()
+								resetUI()
+								return
+							}
+
+							cmd := buildCommand(s.Interpreter, s.Content)
+							_, stderr, exitCode, execErr := client.Execute(cmd,
+								func(line, stream string) {
+									writeOut(line)
+									if stream == "stdout" {
+										outBuf.WriteString(line)
+									} else {
+										errBuf.WriteString(line)
+									}
+								})
+
+							elapsed := int(time.Now().UnixMilli() - startMs)
+							client.Close()
+							mu.Lock()
+							cli = nil
+							mu.Unlock()
+
+							if execErr != nil {
+								writeOut(fmt.Sprintf("\n❌ 执行异常: %v\n", execErr))
+								db.UpdateHistory(hID, "error", outBuf.String(), execErr.Error(), elapsed)
+							} else if exitCode != 0 {
+								writeOut(fmt.Sprintf("\n⚠️ 退出码: %d (耗时: %dms)\n", exitCode, elapsed))
+								db.UpdateHistory(hID, "error", outBuf.String(), errBuf.String(), elapsed)
+							} else {
+								writeOut(fmt.Sprintf("\n✅ 完成 (退出码: 0, 耗时: %dms)\n", elapsed))
+								db.UpdateHistory(hID, "success", outBuf.String(), errBuf.String(), elapsed)
+							}
+							if stderr != "" {
+								writeOut("\n--- STDERR ---\n" + stderr)
+							}
+							resetUI()
+							setStatus(fmt.Sprintf("✅ 快速执行完成: %s → %s", conn.Name, s.Name))
+						}(conn, script, hid)
+					}},
+					PushButton{AssignTo: &stopBtn, Text: "⏹ 停止", Enabled: false, OnClicked: func() {
+						mu.Lock()
+						if cli != nil {
+							cli.Close()
+						}
+						mu.Unlock()
+						writeOut("\n⏹ 用户终止\n")
+						resetUI()
+					}},
+					PushButton{Text: "清空", OnClicked: func() { outputTE.SetText("") }},
+					HSpacer{},
+					PushButton{Text: "关闭", OnClicked: func() { dlg.Cancel() }},
+				},
+			},
+			// Output
+			Label{Text: "执行输出:"},
+			TextEdit{
+				AssignTo: &outputTE, ReadOnly: true,
+				Font:    Font{PointSize: 10, Family: "Consolas"},
+				MinSize: Size{0, 220},
+				VScroll: true,
+			},
+			Label{AssignTo: &statusLbl, Text: "就绪", TextColor: walk.RGB(100, 100, 100)},
+		},
+	}.Run(mainWnd)
+
+	if err != nil {
+		walk.MsgBox(mainWnd, "错误", err.Error(), walk.MsgBoxIconError)
+	}
+}
+
 func buildCommand(interpreter, code string) string {
 	switch interpreter {
 	case "sh", "bash":

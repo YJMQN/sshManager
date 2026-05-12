@@ -33,6 +33,7 @@ func buildConnPanel() Widget {
 						}
 						openExecuteDlgWithConn(connIdx)
 					}},
+					PushButton{Text: "⚡ 快速执行", MinSize: Size{95, 0}, OnClicked: openQuickExecDlg},
 				},
 			},
 			TableView{
@@ -40,6 +41,13 @@ func buildConnPanel() Widget {
 				Model:           connData,
 				MultiSelection:  false,
 				OnItemActivated: onEditConn,
+				ContextMenuItems: []MenuItem{
+					Action{Text: "⚡ 快速执行", OnTriggered: openQuickExecDlg},
+					Separator{},
+					Action{Text: "✎ 编辑", OnTriggered: onEditConn},
+					Action{Text: "🗑 删除", OnTriggered: onDelConn},
+					Action{Text: "🔌 测试连接", OnTriggered: onTestConn},
+				},
 				StyleCell: func(style *walk.CellStyle) {
 					col := style.Col()
 					row := style.Row()
