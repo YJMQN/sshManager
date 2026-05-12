@@ -6,7 +6,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"github.com/lxn/walk"
 	. "github.com/lxn/walk/declarative"
@@ -25,7 +24,17 @@ var dbPath string
 func main() {
 	dbPath = resolveDBPath()
 
-	// Open database
+	// ---- First launch: prompt for db path BEFORE main window ----
+	if !configExists() {
+		p := promptDBPath() // modal dialog, owner=nil
+		if p == "" {
+			// User cancelled — cannot proceed
+			return
+		}
+		dbPath = p
+	}
+
+	// ---- Open database ----
 	var err error
 	db, err = NewDatabase(dbPath)
 	if err != nil {
@@ -41,22 +50,10 @@ func main() {
 
 	setStatus(fmt.Sprintf("📂 数据库: %s", dbPath))
 
-	// Load icon
+	// Load icon from embedded resource (ID 100 from app.rc)
 	appIcon, err := walk.NewIconFromResourceId(100)
 	if err != nil {
 		appIcon = nil
-	}
-
-	// ---- First launch: show setup dialog after main window is ready ----
-	if !configExists() {
-		go func() {
-			time.Sleep(200 * time.Millisecond)
-			mainWnd.Synchronize(func() {
-				if !configExists() {
-					onFirstLaunchSetup()
-				}
-			})
-		}()
 	}
 
 	if _, err := (MainWindow{
@@ -113,7 +110,7 @@ func main() {
 }
 
 // ============================================================
-// First-launch setup (called after main window is visible)
+// First-launch setup dialog (before main window exists)
 // ============================================================
 
 // configExists checks if the config file has a valid db_path.
@@ -122,17 +119,21 @@ func configExists() bool {
 	return cfg.DBPath != ""
 }
 
-func onFirstLaunchSetup() {
+// promptDBPath shows a modal dialog for the user to choose a database path.
+// Called before the main window exists, so owner is nil.
+// Returns the chosen path, or "" if cancelled.
+func promptDBPath() string {
 	exe, _ := os.Executable()
 	defaultPath := filepath.Join(filepath.Dir(exe), "ssh_manager.db")
 
 	var dlg *walk.Dialog
 	var pathInput *walk.LineEdit
+	result := ""
 
 	_, err := Dialog{
 		AssignTo: &dlg,
 		Title:    "👋 欢迎使用 SSH Manager — 选择数据库位置",
-		MinSize:  Size{560, 220},
+		MinSize:  Size{580, 220},
 		Layout:   VBox{Margins: Margins{15, 15, 15, 15}},
 		Children: []Widget{
 			Label{Text: "首次启动，请指定数据库文件存储位置：",
@@ -144,14 +145,14 @@ func onFirstLaunchSetup() {
 					LineEdit{
 						AssignTo:    &pathInput,
 						Text:        defaultPath,
-						MinSize:     Size{340, 0},
+						MinSize:     Size{360, 0},
 						ToolTipText: "输入或浏览选择 .db 文件路径",
 					},
 					PushButton{Text: "浏览...", OnClicked: func() {
 						fd := new(walk.FileDialog)
 						fd.Title = "选择或新建数据库文件"
 						fd.Filter = "数据库文件 (*.db)|*.db|所有文件 (*.*)|*.*"
-						if ok, _ := fd.ShowSave(mainWnd); ok {
+						if ok, _ := fd.ShowSave(nil); ok {
 							pathInput.SetText(fd.FilePath)
 						}
 					}},
@@ -169,40 +170,30 @@ func onFirstLaunchSetup() {
 							walk.MsgBox(dlg, "错误", "请输入数据库路径", walk.MsgBoxIconError)
 							return
 						}
-						// Verify and switch
-						newDB, err := NewDatabase(p)
+						// Verify the path works
+						testDB, err := NewDatabase(p)
 						if err != nil {
 							walk.MsgBox(dlg, "错误",
 								"无法创建/打开数据库: "+err.Error(), walk.MsgBoxIconError)
 							return
 						}
+						testDB.Close()
 
-						// Swap databases
-						db.Close()
-						db = newDB
-						dbPath = p
-
-						// Save config
+						// Save to config
 						_ = saveConfig(&Config{DBPath: p})
-
-						// Refresh UI
-						testedOK = make(map[int64]bool)
-						refreshConnData()
-						refreshScriptData()
-						updateCounts()
-						setStatus(fmt.Sprintf("📂 数据库: %s", dbPath))
-						mainWnd.SetTitle("SSH Manager — 远程脚本执行管理工具")
-
+						result = p
 						dlg.Accept()
 					}},
 				},
 			},
 		},
-	}.Run(mainWnd)
+	}.Run(nil)
 
 	if err != nil {
-		walk.MsgBox(mainWnd, "错误", "启动设置失败: "+err.Error(), walk.MsgBoxIconError)
+		walk.MsgBox(nil, "错误", "启动设置失败: "+err.Error(), walk.MsgBoxIconError)
+		return ""
 	}
+	return result
 }
 
 // ============================================================
@@ -246,7 +237,7 @@ func ensureDir(p string) string {
 }
 
 // ============================================================
-// UI: Change DB path dialog (menu item)
+// UI: Change DB path dialog (menu item, main window exists)
 // ============================================================
 
 func onSetDBPath() {
