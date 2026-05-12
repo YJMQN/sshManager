@@ -518,6 +518,221 @@ func openQuickExecDlg() {
 	}
 }
 
+// openQuickCmdDlg opens a minimal dialog for typing and executing a command quickly.
+// Triggered by double-clicking a connection or via context menu.
+func openQuickCmdDlg() {
+	connIdx := connTV.CurrentIndex()
+	if connIdx < 0 {
+		walk.MsgBox(mainWnd, "提示", "请先选中一个连接", walk.MsgBoxIconInformation)
+		return
+	}
+
+	conns, _ := db.GetConnections()
+	if connIdx >= len(conns) {
+		return
+	}
+	conn := conns[connIdx]
+
+	var dlg *walk.Dialog
+	var cmdInput *walk.TextEdit
+	var outputTE *walk.TextEdit
+	var runBtn, closeBtn *walk.PushButton
+	var statusLbl *walk.Label
+	var running bool
+
+	writeOut := func(text string) {
+		if outputTE != nil {
+			outputTE.AppendText(text)
+		}
+	}
+
+	execFn := func() {
+		if running {
+			return
+		}
+		running = true
+		runBtn.SetEnabled(false)
+
+		cmdText := cmdInput.Text()
+		if strings.TrimSpace(cmdText) == "" {
+			writeOut("请输入要执行的命令\n")
+			running = false
+			runBtn.SetEnabled(true)
+			return
+		}
+
+		outputTE.SetText("")
+		writeOut(fmt.Sprintf("===== %s =====\n", time.Now().Format("15:04:05")))
+		writeOut(fmt.Sprintf("▶ %s (%s:%d)\n", conn.Name, conn.Host, conn.Port))
+		writeOut(fmt.Sprintf("▶ 命令: %s\n", cmdText))
+		writeOut(strings.Repeat("=", 50) + "\n")
+
+		statusLbl.SetText("⏳ 执行中...")
+
+		go func() {
+			startMs := time.Now().UnixMilli()
+			client := &SSHClient{}
+
+			err := client.Connect(conn.Host, conn.Port, conn.Username,
+				conn.AuthType, conn.Password, conn.KeyPath, 10*time.Second)
+			if err != nil {
+				writeOut(fmt.Sprintf("❌ 连接失败: %v\n", err))
+				running = false
+				runBtn.SetEnabled(true)
+				statusLbl.SetText("连接失败")
+				return
+			}
+
+			cmd := buildCommand("sh", cmdText)
+			_, stderr, exitCode, execErr := client.Execute(cmd,
+				func(line, stream string) {
+					writeOut(line)
+				})
+
+			elapsed := int(time.Now().UnixMilli() - startMs)
+			client.Close()
+
+			if execErr != nil {
+				writeOut(fmt.Sprintf("\n❌ 执行异常: %v\n", execErr))
+			} else if exitCode != 0 {
+				writeOut(fmt.Sprintf("\n⚠️ 退出码: %d (耗时: %dms)\n", exitCode, elapsed))
+			} else {
+				writeOut(fmt.Sprintf("\n✅ 完成 (退出码: 0, 耗时: %dms)\n", elapsed))
+			}
+			if stderr != "" {
+				writeOut("\n--- STDERR ---\n" + stderr)
+			}
+			running = false
+			runBtn.SetEnabled(true)
+			statusLbl.SetText("就绪")
+		}()
+	}
+
+	_, err := Dialog{
+		AssignTo: &dlg,
+		Title:    fmt.Sprintf("⚡ 快速命令 — %s (%s:%d)", conn.Name, conn.Host, conn.Port),
+		MinSize:  Size{600, 400},
+		Layout:   VBox{Margins: Margins{10, 10, 10, 10}},
+		Children: []Widget{
+			Label{Text: "输入命令:", Font: Font{PointSize: 9, Bold: true}},
+			TextEdit{
+				AssignTo: &cmdInput,
+				Font:     Font{PointSize: 10, Family: "Consolas"},
+				MinSize:  Size{0, 60},
+				MaxSize:  Size{0, 120},
+				VScroll:  true,
+			},
+			Composite{
+				Layout: HBox{Spacing: 8},
+				Children: []Widget{
+					PushButton{AssignTo: &runBtn, Text: "▶ 执行", OnClicked: execFn},
+					PushButton{AssignTo: &closeBtn, Text: "关闭", OnClicked: func() { dlg.Cancel() }},
+					HSpacer{},
+					Label{AssignTo: &statusLbl, Text: "就绪", TextColor: walk.RGB(100, 100, 100)},
+				},
+			},
+			Label{Text: "输出:"},
+			TextEdit{
+				AssignTo: &outputTE, ReadOnly: true,
+				Font:    Font{PointSize: 10, Family: "Consolas"},
+				MinSize: Size{0, 180},
+				VScroll: true,
+			},
+		},
+	}.Run(mainWnd)
+
+	if err != nil {
+		walk.MsgBox(mainWnd, "错误", err.Error(), walk.MsgBoxIconError)
+	}
+}
+
+// execQuickCmd executes a command from the bottom quick command bar.
+func execQuickCmd() {
+	connIdx := connTV.CurrentIndex()
+	if connIdx < 0 {
+		walk.MsgBox(mainWnd, "提示", "请先选中一个连接", walk.MsgBoxIconInformation)
+		return
+	}
+
+	cmdText := quickCmdInput.Text()
+	if strings.TrimSpace(cmdText) == "" {
+		return
+	}
+
+	conns, _ := db.GetConnections()
+	if connIdx >= len(conns) {
+		return
+	}
+	conn := conns[connIdx]
+
+	// Update quick bar display
+	quickConnLabel.SetText(fmt.Sprintf("▶ %s (%s:%d)", conn.Name, conn.Host, conn.Port))
+	quickConnLabel.SetTextColor(walk.RGB(0, 128, 0))
+	quickCmdInput.SetEnabled(false)
+
+	setStatus(fmt.Sprintf("⏳ 执行: %s → %s", conn.Name, cmdText))
+
+	go func() {
+		startMs := time.Now().UnixMilli()
+		client := &SSHClient{}
+		var outBuf, errBuf strings.Builder
+
+		err := client.Connect(conn.Host, conn.Port, conn.Username,
+			conn.AuthType, conn.Password, conn.KeyPath, 10*time.Second)
+		if err != nil {
+			setStatus(fmt.Sprintf("❌ 连接失败: %s", err.Error()))
+			quickCmdInput.SetEnabled(true)
+			return
+		}
+
+		cmd := buildCommand("sh", cmdText)
+		_, _, exitCode, execErr := client.Execute(cmd,
+			func(line, stream string) {
+				if stream == "stdout" {
+					outBuf.WriteString(line)
+				} else {
+					errBuf.WriteString(line)
+				}
+			})
+
+		elapsed := int(time.Now().UnixMilli() - startMs)
+		client.Close()
+
+		// Build result summary
+		result := fmt.Sprintf("⚡ %s → %s", conn.Name, cmdText)
+		result += fmt.Sprintf(" (耗时: %dms", elapsed)
+		if execErr != nil {
+			result += fmt.Sprintf(", 异常: %v", execErr)
+		} else {
+			result += fmt.Sprintf(", 退出码: %d", exitCode)
+		}
+		result += ")"
+
+		// Show first line of output in status
+		outLine := strings.TrimSpace(outBuf.String())
+		if outLine != "" {
+			// Take first line
+			if idx := strings.Index(outLine, "\n"); idx > 0 {
+				outLine = outLine[:idx]
+			}
+			if len(outLine) > 60 {
+				outLine = outLine[:60] + "..."
+			}
+			result += " | " + outLine
+		}
+
+		setStatus(result)
+		quickCmdInput.SetEnabled(true)
+		quickCmdInput.SetText("")
+		quickCmdInput.SetFocus()
+
+		// Show error in quick bar label if failed
+		if execErr != nil || exitCode != 0 {
+			quickConnLabel.SetTextColor(walk.RGB(200, 0, 0))
+		}
+	}()
+}
+
 func buildCommand(interpreter, code string) string {
 	switch interpreter {
 	case "sh", "bash":

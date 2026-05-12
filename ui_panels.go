@@ -16,6 +16,18 @@ func buildConnPanel() Widget {
 				Children: []Widget{
 					Label{Text: "🖥 连接管理", Font: Font{PointSize: 11, Bold: true}},
 					Label{Text: "SSH Connections", TextColor: walk.RGB(128, 128, 128)},
+					HSpacer{},
+					// Search box
+					Label{Text: "🔍", TextColor: walk.RGB(128, 128, 128)},
+					LineEdit{
+						AssignTo: &connSearchInput,
+						MinSize:  Size{120, 0},
+						MaxSize:  Size{200, 22},
+						ToolTipText: "输入名称或主机过滤",
+						OnKeyUp: func(key walk.Key) {
+							refreshConnData()
+						},
+					},
 				},
 			},
 			Composite{
@@ -40,9 +52,22 @@ func buildConnPanel() Widget {
 				AssignTo:        &connTV,
 				Model:           connData,
 				MultiSelection:  false,
-				OnItemActivated: onEditConn,
+				OnItemActivated: openQuickCmdDlg,
+				OnCurrentIndexChanged: func() {
+					idx := connTV.CurrentIndex()
+					conns, _ := db.GetConnections()
+					if idx >= 0 && idx < len(conns) {
+						c := conns[idx]
+						quickConnLabel.SetText(fmt.Sprintf("▶ %s (%s:%d)", c.Name, c.Host, c.Port))
+						quickConnLabel.SetTextColor(walk.RGB(0, 80, 160))
+					} else {
+						quickConnLabel.SetText("(未选择连接)")
+						quickConnLabel.SetTextColor(walk.RGB(128, 128, 128))
+					}
+				},
 				ContextMenuItems: []MenuItem{
-					Action{Text: "⚡ 快速执行", OnTriggered: openQuickExecDlg},
+					Action{Text: "⚡ 快速命令", OnTriggered: openQuickCmdDlg},
+					Action{Text: "⚡ 快速执行脚本", OnTriggered: openQuickExecDlg},
 					Separator{},
 					Action{Text: "✎ 编辑", OnTriggered: onEditConn},
 					Action{Text: "🗑 删除", OnTriggered: onDelConn},
@@ -123,14 +148,39 @@ func buildScriptPanel() Widget {
 
 func buildBottomBar() Widget {
 	return Composite{
-		Layout: HBox{Margins: Margins{5, 0, 5, 5}},
+		Layout: VBox{Margins: Margins{3, 0, 3, 3}, Spacing: 4},
 		Children: []Widget{
-			PushButton{Text: "▶ 执行中心", MinSize: Size{110, 0}, OnClicked: openExecuteDlg},
-			PushButton{Text: "📋 执行历史", MinSize: Size{110, 0}, OnClicked: openHistoryDlg},
-			HSeparator{},
-			PushButton{Text: "🔄 刷新", OnClicked: refreshAll},
-			HSpacer{},
-			Label{AssignTo: &statusLabel, Text: "就绪", TextColor: walk.RGB(100, 100, 100)},
+			// Row 1: Action buttons
+			Composite{
+				Layout: HBox{MarginsZero: true},
+				Children: []Widget{
+					PushButton{Text: "▶ 执行中心", MinSize: Size{110, 0}, OnClicked: openExecuteDlg},
+					PushButton{Text: "📋 执行历史", MinSize: Size{110, 0}, OnClicked: openHistoryDlg},
+					HSeparator{},
+					PushButton{Text: "🔄 刷新", OnClicked: refreshAll},
+					HSpacer{},
+					Label{AssignTo: &statusLabel, Text: "就绪", TextColor: walk.RGB(100, 100, 100)},
+				},
+			},
+			// Row 2: Quick command bar
+			Composite{
+				Layout: HBox{MarginsZero: true, Spacing: 6},
+				Children: []Widget{
+					Label{Text: "⚡ 快捷命令", Font: Font{PointSize: 9, Bold: true}},
+					Label{AssignTo: &quickConnLabel, Text: "(未选择连接)", TextColor: walk.RGB(128, 128, 128)},
+					LineEdit{
+						AssignTo: &quickCmdInput,
+						MinSize:  Size{200, 0},
+						ToolTipText: "输入命令，回车快速执行",
+						OnKeyUp: func(key walk.Key) {
+							if key == walk.KeyReturn {
+								execQuickCmd()
+							}
+						},
+					},
+					PushButton{Text: "▶ 执行", MinSize: Size{60, 0}, OnClicked: execQuickCmd},
+				},
+			},
 		},
 	}
 }

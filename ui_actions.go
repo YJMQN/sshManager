@@ -51,7 +51,7 @@ func onAddConn() {
 						fd.Filter = "所有文件 (*.*)|*.*"
 						fd.Title = "选择 SSH 私钥"
 						if ok, _ := fd.ShowOpen(mainWnd); ok {
-							keyPath.SetText(fd.FilePath)
+							pw.SetText(fd.FilePath)
 						}
 					}},
 					HSpacer{},
@@ -151,7 +151,7 @@ func onEditConn() {
 						fd.Filter = "所有文件 (*.*)|*.*"
 						fd.Title = "选择 SSH 私钥"
 						if ok, _ := fd.ShowOpen(mainWnd); ok {
-							keyPath.SetText(fd.FilePath)
+							pw.SetText(fd.FilePath)
 						}
 					}},
 					PushButton{Text: "🔌 测试连接", OnClicked: func() {
@@ -342,17 +342,6 @@ func onAddScript() {
 		},
 	}.Run(mainWnd)
 
-	// Init auth type radio buttons based on existing conn
-	if conn.AuthType == "key" {
-		if authKey != nil {
-			authKey.SetChecked(true)
-		}
-	} else {
-		if authPW != nil {
-			authPW.SetChecked(true)
-		}
-	}
-
 	if err != nil {
 		walk.MsgBox(mainWnd, "错误", err.Error(), walk.MsgBoxIconError)
 	}
@@ -425,17 +414,6 @@ func onEditScript() {
 			},
 		},
 	}.Run(mainWnd)
-
-	// Init auth type radio buttons based on existing conn
-	if conn.AuthType == "key" {
-		if authKey != nil {
-			authKey.SetChecked(true)
-		}
-	} else {
-		if authPW != nil {
-			authPW.SetChecked(true)
-		}
-	}
 
 	if err != nil {
 		walk.MsgBox(mainWnd, "错误", err.Error(), walk.MsgBoxIconError)

@@ -17,6 +17,9 @@ var (
 	statusLabel      *walk.Label
 	connCountLabel   *walk.Label
 	scriptCountLabel *walk.Label
+	quickCmdInput    *walk.LineEdit
+	quickConnLabel   *walk.Label
+	connSearchInput  *walk.LineEdit
 )
 
 func main() {
@@ -53,11 +56,15 @@ func main() {
 			Menu{
 				Text: "文件",
 				Items: []MenuItem{
-					Action{Text: "执行中心...",
+					Action{Text: "⚡ 快速命令...",
+						Shortcut:    Shortcut{walk.ModControl, walk.KeyD},
+						OnTriggered: openQuickCmdDlg,
+					},
+					Action{Text: "▶ 执行中心...",
 						Shortcut:    Shortcut{walk.ModControl, walk.KeyE},
 						OnTriggered: openExecuteDlg,
 					},
-					Action{Text: "执行历史...",
+					Action{Text: "📋 执行历史...",
 						Shortcut:    Shortcut{walk.ModControl, walk.KeyH},
 						OnTriggered: openHistoryDlg,
 					},

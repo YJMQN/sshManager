@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"strings"
 	"sync"
 )
 
@@ -101,7 +102,24 @@ func refreshConnData() {
 	if err != nil {
 		return
 	}
+
+	// Apply search filter
+	filterText := ""
+	if connSearchInput != nil {
+		filterText = connSearchInput.Text()
+	}
+
 	connMu.Lock()
+	if filterText != "" {
+		filtered := make([]*Connection, 0, len(conns))
+		for _, c := range conns {
+			if containsCI(c.Name, filterText) || containsCI(c.Host, filterText) {
+				filtered = append(filtered, c)
+			}
+		}
+		conns = filtered
+	}
+
 	n := len(conns)
 	connData = make([]map[string]interface{}, n)
 	connCache = make([]connCacheEntry, n)
@@ -110,7 +128,6 @@ func refreshConnData() {
 		if c.AuthType == "key" {
 			authLabel = "密钥"
 		}
-		// Only display keys in the map - these must match column titles exactly
 		connData[i] = map[string]interface{}{
 			"名称": c.Name,
 			"主机": c.Host,
@@ -131,6 +148,12 @@ func refreshConnData() {
 	if connTV != nil {
 		connTV.SetModel(connData)
 	}
+}
+
+// Case-insensitive contains
+func containsCI(s, substr string) bool {
+	s, substr = strings.ToLower(s), strings.ToLower(substr)
+	return strings.Contains(s, substr)
 }
 
 func refreshScriptData() {
