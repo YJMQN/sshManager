@@ -11,12 +11,19 @@ import (
 	. "github.com/lxn/walk/declarative"
 )
 
-// dbPath is set from CLI arg or defaults to exe directory.
-// Override: SSHManager.exe --db-path=C:\data\ssh_manager.db
+// dbPath holds the current SQLite database path, resolved at startup
+// and updated when the user switches via the settings dialog.
+//
+// Priority (high → low):
+//
+//	1. CLI arg:     --db-path=<path>
+//	2. Config file: config.json next to exe (set via UI)
+//	3. Env var:     SSH_MANAGER_DB
+//	4. Default:     <exe_dir>/ssh_manager.db
 var dbPath string
 
 func main() {
-	// ---- Parse --db-path CLI argument ----
+	// ---- Resolve database path ----
 	dbPath = resolveDBPath()
 
 	var err error
@@ -64,6 +71,8 @@ func main() {
 						OnTriggered: openHistoryDlg,
 					},
 					Separator{},
+					Action{Text: "📂 设置数据库路径...", OnTriggered: onSetDBPath},
+					Separator{},
 					Action{Text: "退出",
 						Shortcut:    Shortcut{walk.ModControl, walk.KeyQ},
 						OnTriggered: func() { mainWnd.Close() },
@@ -91,14 +100,12 @@ func main() {
 	}
 }
 
-// resolveDBPath determines the SQLite database path.
-// Priority:
-//
-//	1. --db-path=<path>    CLI argument
-//	2. SSH_MANAGER_DB     environment variable
-//	3. <exe_dir>/ssh_manager.db   (default)
+// ============================================================
+// Database path resolution
+// ============================================================
+
 func resolveDBPath() string {
-	// 1. CLI arg: --db-path=<path>
+	// 1. CLI arg — highest priority
 	for _, arg := range os.Args[1:] {
 		if strings.HasPrefix(arg, "--db-path=") {
 			p := strings.TrimPrefix(arg, "--db-path=")
@@ -108,12 +115,18 @@ func resolveDBPath() string {
 		}
 	}
 
-	// 2. Environment variable
+	// 2. Config file (set via UI)
+	cfg := loadConfig()
+	if cfg.DBPath != "" {
+		return ensureDir(cfg.DBPath)
+	}
+
+	// 3. Environment variable
 	if env := os.Getenv("SSH_MANAGER_DB"); env != "" {
 		return ensureDir(env)
 	}
 
-	// 3. Default: exe directory
+	// 4. Default
 	exe, _ := os.Executable()
 	return filepath.Join(filepath.Dir(exe), "ssh_manager.db")
 }
@@ -126,6 +139,97 @@ func ensureDir(p string) string {
 	}
 	return p
 }
+
+// ============================================================
+// UI: Set database path dialog
+// ============================================================
+
+func onSetDBPath() {
+	var dlg *walk.Dialog
+	var pathInput *walk.LineEdit
+	var statusLbl *walk.Label
+
+	_, err := Dialog{
+		AssignTo: &dlg,
+		Title:    "设置数据库路径",
+		MinSize:  Size{520, 170},
+		Layout:   VBox{Margins: Margins{10, 10, 10, 10}},
+		Children: []Widget{
+			Label{Text: "数据库文件路径:", Font: Font{PointSize: 9, Bold: true}},
+			Composite{
+				Layout: HBox{Spacing: 6},
+				Children: []Widget{
+					LineEdit{
+						AssignTo:  &pathInput,
+						Text:      dbPath,
+						MinSize:   Size{300, 0},
+						ToolTipText: "输入 .db 文件路径，或点击浏览选择",
+					},
+					PushButton{Text: "浏览...", OnClicked: func() {
+						fd := new(walk.FileDialog)
+						fd.Title = "选择 SQLite 数据库文件"
+						fd.Filter = "数据库文件 (*.db)|*.db|所有文件 (*.*)|*.*"
+						if ok, _ := fd.ShowOpen(mainWnd); ok {
+							pathInput.SetText(fd.FilePath)
+						}
+					}},
+				},
+			},
+			Label{AssignTo: &statusLbl, Text: "更改后将重新加载数据库", TextColor: walk.RGB(128, 128, 128)},
+			Composite{
+				Layout: HBox{Spacing: 8},
+				Children: []Widget{
+					HSpacer{},
+					PushButton{Text: "确定并切换", OnClicked: func() {
+						newPath := pathInput.Text()
+						if newPath == "" {
+							walk.MsgBox(dlg, "错误", "路径不能为空", walk.MsgBoxIconError)
+							return
+						}
+						if newPath == dbPath {
+							dlg.Cancel()
+							return
+						}
+
+						// Try to open the new database
+						newDB, err := NewDatabase(newPath)
+						if err != nil {
+							walk.MsgBox(dlg, "错误",
+								"无法打开数据库: "+err.Error(), walk.MsgBoxIconError)
+							return
+						}
+
+						// Close old, swap to new
+						db.Close()
+						db = newDB
+						dbPath = newPath
+
+						// Save to config
+						_ = saveConfig(&Config{DBPath: newPath})
+
+						// Refresh all data
+						testedOK = make(map[int64]bool)
+						refreshConnData()
+						refreshScriptData()
+						updateCounts()
+						setStatus(fmt.Sprintf("📂 数据库已切换: %s", dbPath))
+
+						dlg.Accept()
+					}},
+					PushButton{Text: "取消", OnClicked: func() { dlg.Cancel() }},
+				},
+			},
+		},
+	}.Run(mainWnd)
+
+	if err != nil {
+		walk.MsgBox(mainWnd, "错误", err.Error(), walk.MsgBoxIconError)
+	}
+}
+
+// ============================================================
+// About
+// ============================================================
 
 func showAbout() {
 	walk.MsgBox(mainWnd, "关于 SSH Manager",
