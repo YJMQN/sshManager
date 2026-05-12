@@ -37,6 +37,7 @@ func buildConnPanel() Widget {
 					PushButton{Text: "✎ 编辑", MinSize: Size{80, 0}, OnClicked: onEditConn},
 					PushButton{Text: "🗑 删除", MinSize: Size{80, 0}, OnClicked: onDelConn},
 					PushButton{Text: "🔌 测试", MinSize: Size{80, 0}, OnClicked: onTestConn},
+					PushButton{Text: "📂 文件", MinSize: Size{75, 0}, OnClicked: openFileBrowser},
 					PushButton{Text: "▶ 执行", MinSize: Size{80, 0}, OnClicked: func() {
 						connIdx := connTV.CurrentIndex()
 						if connIdx < 0 {
@@ -68,6 +69,7 @@ func buildConnPanel() Widget {
 				ContextMenuItems: []MenuItem{
 					Action{Text: "⚡ 快速命令", OnTriggered: openQuickCmdDlg},
 					Action{Text: "⚡ 快速执行脚本", OnTriggered: openQuickExecDlg},
+					Action{Text: "📂 文件浏览", OnTriggered: openFileBrowser},
 					Separator{},
 					Action{Text: "✎ 编辑", OnTriggered: onEditConn},
 					Action{Text: "🗑 删除", OnTriggered: onDelConn},
@@ -156,6 +158,7 @@ func buildBottomBar() Widget {
 				Children: []Widget{
 					PushButton{Text: "▶ 执行中心", MinSize: Size{110, 0}, OnClicked: openExecuteDlg},
 					PushButton{Text: "📋 执行历史", MinSize: Size{110, 0}, OnClicked: openHistoryDlg},
+					PushButton{Text: "📂 文件浏览", MinSize: Size{110, 0}, OnClicked: openFileBrowser},
 					HSeparator{},
 					PushButton{Text: "🔄 刷新", OnClicked: refreshAll},
 					HSpacer{},
