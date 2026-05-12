@@ -1,43 +1,47 @@
 package main
 
 import (
-	"golang.org/x/sys/windows/registry"
+	"encoding/json"
+	"os"
+	"path/filepath"
 )
 
-const (
-	regKey  = `Software\SSH Manager`
-	regVal  = "DBPath"
-)
+// Config represents user settings stored in %APPDATA%.
+type Config struct {
+	DBPath string `json:"db_path"`
+}
 
-// loadConfig reads database path from Windows Registry.
-// If the key or value is missing, returns empty string.
+// configPath returns %APPDATA%\SSH Manager\config.json
+// This is the standard Windows per-user app data directory.
+func configPath() string {
+	appData := os.Getenv("APPDATA")
+	if appData == "" {
+		// Fallback: next to exe (shouldn't happen on real Windows)
+		exe, _ := os.Executable()
+		appData = filepath.Dir(exe)
+	}
+	return filepath.Join(appData, "SSH Manager", "config.json")
+}
+
+// loadConfig reads config from %APPDATA%.
+// File not found is silently ignored (first launch).
 func loadConfig() *Config {
 	cfg := &Config{}
-	k, err := registry.OpenKey(registry.CURRENT_USER, regKey, registry.QUERY_VALUE)
+	data, err := os.ReadFile(configPath())
 	if err != nil {
-		return cfg // key doesn't exist yet
+		return cfg
 	}
-	defer k.Close()
-
-	s, _, err := k.GetStringValue(regVal)
-	if err == nil {
-		cfg.DBPath = s
-	}
+	_ = json.Unmarshal(data, cfg)
 	return cfg
 }
 
-// saveConfig writes database path to Windows Registry.
+// saveConfig writes config to %APPDATA%.
 func saveConfig(cfg *Config) error {
-	k, _, err := registry.CreateKey(registry.CURRENT_USER, regKey, registry.SET_VALUE)
+	path := configPath()
+	os.MkdirAll(filepath.Dir(path), 0755)
+	data, err := json.MarshalIndent(cfg, "", "  ")
 	if err != nil {
 		return err
 	}
-	defer k.Close()
-
-	return k.SetStringValue(regVal, cfg.DBPath)
-}
-
-// Config represents user settings stored in Windows Registry.
-type Config struct {
-	DBPath string
+	return os.WriteFile(path, data, 0644)
 }

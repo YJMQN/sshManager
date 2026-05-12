@@ -14,18 +14,25 @@ import (
 // dbPath holds the current SQLite database path, resolved at startup
 // and updated when the user switches via the settings dialog.
 //
-// Priority (high → low):
+// Priority:
 //
-//	1. CLI arg:     --db-path=<path>
-//	2. Registry:    HKCU\Software\SSH Manager\DBPath  (set via UI)
-//	3. Env var:     SSH_MANAGER_DB
-//	4. Default:     <exe_dir>/ssh_manager.db
+//	1. CLI arg:       --db-path=<path>
+//	2. Config file:   %APPDATA%\SSH Manager\config.json  (set via UI)
+//	3. Env var:       SSH_MANAGER_DB
+//	4. Default:       <exe_dir>/ssh_manager.db
 var dbPath string
 
 func main() {
-	// ---- Resolve database path ----
 	dbPath = resolveDBPath()
 
+	// ---- First launch? Ask for db path before showing main window ----
+	if !configExists() {
+		pickDBPathOnFirstLaunch()
+		// After dialog, re-resolve (config is now saved)
+		dbPath = resolveDBPath()
+	}
+
+	// ---- Open database ----
 	var err error
 	db, err = NewDatabase(dbPath)
 	if err != nil {
@@ -41,7 +48,7 @@ func main() {
 
 	setStatus(fmt.Sprintf("📂 数据库: %s", dbPath))
 
-	// Load icon from embedded resource (ID 100 from app.rc)
+	// Load icon from embedded resource
 	appIcon, err := walk.NewIconFromResourceId(100)
 	if err != nil {
 		appIcon = nil
@@ -101,6 +108,90 @@ func main() {
 }
 
 // ============================================================
+// First-launch dialog (shown before main window)
+// ============================================================
+
+// configExists checks if the config file has a valid db_path.
+func configExists() bool {
+	cfg := loadConfig()
+	return cfg.DBPath != ""
+}
+
+// pickDBPathOnFirstLaunch shows a mandatory dialog on first launch.
+// The user must pick a path and confirm before continuing.
+func pickDBPathOnFirstLaunch() {
+	// Suggest a reasonable default
+	exe, _ := os.Executable()
+	defaultPath := filepath.Join(filepath.Dir(exe), "ssh_manager.db")
+
+	var dlg *walk.Dialog
+	var pathInput *walk.LineEdit
+	var statusLbl *walk.Label
+
+	_, err := Dialog{
+		AssignTo: &dlg,
+		Title:    "👋 欢迎使用 SSH Manager — 选择数据库位置",
+		MinSize:  Size{560, 220},
+		Layout:   VBox{Margins: Margins{15, 15, 15, 15}},
+		Children: []Widget{
+			Label{Text: "首次启动，请指定数据库文件存储位置：",
+				Font: Font{PointSize: 10, Bold: true}},
+			Label{Text: "数据库文件路径:", Font: Font{PointSize: 9}},
+			Composite{
+				Layout: HBox{Spacing: 6},
+				Children: []Widget{
+					LineEdit{
+						AssignTo:    &pathInput,
+						Text:        defaultPath,
+						MinSize:     Size{340, 0},
+						ToolTipText: "输入或浏览选择 .db 文件路径",
+					},
+					PushButton{Text: "浏览...", OnClicked: func() {
+						fd := new(walk.FileDialog)
+						fd.Title = "选择或新建数据库文件"
+						fd.Filter = "数据库文件 (*.db)|*.db|所有文件 (*.*)|*.*"
+						if ok, _ := fd.ShowSave(nil); ok {
+							pathInput.SetText(fd.FilePath)
+						}
+					}},
+				},
+			},
+			Label{AssignTo: &statusLbl, Text: "路径不存在会自动创建，可随时在菜单中更改",
+				TextColor: walk.RGB(128, 128, 128)},
+			Composite{
+				Layout: HBox{Spacing: 8},
+				Children: []Widget{
+					HSpacer{},
+					PushButton{Text: "✅ 确认并启动", MinSize: Size{120, 0}, OnClicked: func() {
+						p := pathInput.Text()
+						if p == "" {
+							walk.MsgBox(dlg, "错误", "请输入数据库路径", walk.MsgBoxIconError)
+							return
+						}
+						// Verify it can be opened (creates if not exists)
+						testDB, err := NewDatabase(p)
+						if err != nil {
+							walk.MsgBox(dlg, "错误",
+								"无法创建/打开数据库: "+err.Error(), walk.MsgBoxIconError)
+							return
+						}
+						testDB.Close()
+
+						// Save config
+						_ = saveConfig(&Config{DBPath: p})
+						dlg.Accept()
+					}},
+				},
+			},
+		},
+	}.Run(nil)
+
+	if err != nil {
+		log.Fatalf("启动设置失败: %v", err)
+	}
+}
+
+// ============================================================
 // Database path resolution
 // ============================================================
 
@@ -115,7 +206,7 @@ func resolveDBPath() string {
 		}
 	}
 
-	// 2. Registry (set via UI)
+	// 2. Config file (set via UI, stored in %APPDATA%)
 	cfg := loadConfig()
 	if cfg.DBPath != "" {
 		return ensureDir(cfg.DBPath)
@@ -141,18 +232,17 @@ func ensureDir(p string) string {
 }
 
 // ============================================================
-// UI: Set database path dialog
+// UI: Set database path dialog (menu item)
 // ============================================================
 
 func onSetDBPath() {
 	var dlg *walk.Dialog
 	var pathInput *walk.LineEdit
-	var statusLbl *walk.Label
 
 	_, err := Dialog{
 		AssignTo: &dlg,
 		Title:    "设置数据库路径",
-		MinSize:  Size{520, 170},
+		MinSize:  Size{560, 190},
 		Layout:   VBox{Margins: Margins{10, 10, 10, 10}},
 		Children: []Widget{
 			Label{Text: "数据库文件路径:", Font: Font{PointSize: 9, Bold: true}},
@@ -160,9 +250,9 @@ func onSetDBPath() {
 				Layout: HBox{Spacing: 6},
 				Children: []Widget{
 					LineEdit{
-						AssignTo:  &pathInput,
-						Text:      dbPath,
-						MinSize:   Size{300, 0},
+						AssignTo:    &pathInput,
+						Text:        dbPath,
+						MinSize:     Size{340, 0},
 						ToolTipText: "输入 .db 文件路径，或点击浏览选择",
 					},
 					PushButton{Text: "浏览...", OnClicked: func() {
@@ -175,7 +265,7 @@ func onSetDBPath() {
 					}},
 				},
 			},
-			Label{AssignTo: &statusLbl, Text: "更改后将重新加载数据库（保存到注册表）", TextColor: walk.RGB(128, 128, 128)},
+			Label{Text: "更改后将重新加载数据库", TextColor: walk.RGB(128, 128, 128)},
 			Composite{
 				Layout: HBox{Spacing: 8},
 				Children: []Widget{
@@ -191,7 +281,6 @@ func onSetDBPath() {
 							return
 						}
 
-						// Try to open the new database
 						newDB, err := NewDatabase(newPath)
 						if err != nil {
 							walk.MsgBox(dlg, "错误",
@@ -199,15 +288,12 @@ func onSetDBPath() {
 							return
 						}
 
-						// Close old, swap to new
 						db.Close()
 						db = newDB
 						dbPath = newPath
 
-						// Save to registry
 						_ = saveConfig(&Config{DBPath: newPath})
 
-						// Refresh all data
 						testedOK = make(map[int64]bool)
 						refreshConnData()
 						refreshScriptData()
@@ -237,6 +323,6 @@ func showAbout() {
 			"远程脚本执行管理工具\n"+
 			"基于 Go + Walk 原生 GUI\n"+
 			"• 编译型，启动快\n• 单文件，零依赖\n• 内存占用极低\n\n"+
-			"📂 数据库:\n%s", dbPath),
+			"📂 数据库:\n%s\n\n⚙️ 配置文件:\n%s", dbPath, configPath()),
 		walk.MsgBoxIconInformation)
 }
