@@ -20,6 +20,8 @@ package main
 
 import (
 	"fmt"
+	"os"
+	"time"
 
 	"github.com/lxn/walk"
 )
@@ -133,4 +135,65 @@ func getScriptByID(id int64) *Script {
 		}
 	}
 	return nil
+}
+
+
+// exportRichText opens a file-save dialog and writes the RichText content to a
+// plain-text file. Returns the exported file path (empty if cancelled).
+func exportRichText(owner walk.Form, rt *RichText, suggestedName string) string {
+	if rt == nil {
+		walk.MsgBox(owner, "提示", "没有可导出的内容", walk.MsgBoxIconInformation)
+		return ""
+	}
+	text := rt.GetText()
+	if text == "" {
+		walk.MsgBox(owner, "提示", "没有可导出的内容", walk.MsgBoxIconInformation)
+		return ""
+	}
+	fd := new(walk.FileDialog)
+	fd.Title = "导出输出日志"
+	fd.Filter = "文本文件 (*.txt)|*.txt|日志文件 (*.log)|*.log|所有文件 (*.*)|*.*"
+	if suggestedName == "" {
+		suggestedName = fmt.Sprintf("output_%s.txt", time.Now().Format("20060102_150405"))
+	}
+	fd.FilePath = suggestedName
+	ok, err := fd.ShowSave(owner)
+	if err != nil {
+		walk.MsgBox(owner, "错误", "保存对话框错误: "+err.Error(), walk.MsgBoxIconError)
+		return ""
+	}
+	if !ok {
+		return ""
+	}
+	if err := os.WriteFile(fd.FilePath, []byte(text), 0644); err != nil {
+		walk.MsgBox(owner, "错误", "导出失败: "+err.Error(), walk.MsgBoxIconError)
+		return ""
+	}
+	walk.MsgBox(owner, "导出成功", fmt.Sprintf("已导出到:\n%s", fd.FilePath), walk.MsgBoxIconInformation)
+	return fd.FilePath
+}
+
+// exportText opens a file-save dialog and writes a string to a plain-text file.
+func exportText(owner walk.Form, content string, suggestedName string) {
+	if content == "" {
+		walk.MsgBox(owner, "提示", "没有可导出的内容", walk.MsgBoxIconInformation)
+		return
+	}
+	fd := new(walk.FileDialog)
+	fd.Title = "导出为文本文件"
+	fd.Filter = "文本文件 (*.txt)|*.txt|日志文件 (*.log)|*.log|所有文件 (*.*)|*.*"
+	fd.FilePath = suggestedName
+	ok, err := fd.ShowSave(owner)
+	if err != nil {
+		walk.MsgBox(owner, "错误", "保存对话框错误: "+err.Error(), walk.MsgBoxIconError)
+		return
+	}
+	if !ok {
+		return
+	}
+	if err := os.WriteFile(fd.FilePath, []byte(content), 0644); err != nil {
+		walk.MsgBox(owner, "错误", "导出失败: "+err.Error(), walk.MsgBoxIconError)
+		return
+	}
+	walk.MsgBox(owner, "导出成功", fmt.Sprintf("已导出到:\n%s", fd.FilePath), walk.MsgBoxIconInformation)
 }

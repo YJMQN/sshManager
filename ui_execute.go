@@ -285,6 +285,7 @@ func openExecuteDlgWithConn(connIdx int) {
 						resetUI()
 					}},
 					PushButton{Text: "清空输出", OnClicked: func() { if outputTE != nil { outputTE.Clear() } }},
+					PushButton{Text: "📥 导出", OnClicked: func() { exportRichText(dlg, outputTE, fmt.Sprintf("execute_%s.txt", time.Now().Format("20060102_150405"))) }},
 					HSpacer{},
 					PushButton{Text: "关闭", OnClicked: func() { dlg.Cancel() }},
 				},
@@ -512,6 +513,7 @@ func openQuickExecDlg() {
 						resetUI()
 					}},
 					PushButton{Text: "清空", OnClicked: func() { if outputTE != nil { outputTE.Clear() } }},
+					PushButton{Text: "📥 导出", OnClicked: func() { exportRichText(dlg, outputTE, fmt.Sprintf("quickexec_%s.txt", time.Now().Format("20060102_150405"))) }},
 					HSpacer{},
 					PushButton{Text: "关闭", OnClicked: func() { dlg.Cancel() }},
 				},
@@ -648,6 +650,8 @@ func openQuickCmdDlg() {
 				Layout: HBox{Spacing: 8},
 				Children: []Widget{
 					PushButton{AssignTo: &runBtn, Text: "▶ 执行", OnClicked: execFn},
+					PushButton{Text: "清空", OnClicked: func() { if outputTE != nil { outputTE.Clear() } }},
+					PushButton{Text: "📥 导出", OnClicked: func() { exportRichText(dlg, outputTE, fmt.Sprintf("quickcmd_%s.txt", time.Now().Format("20060102_150405"))) }},
 					PushButton{AssignTo: &closeBtn, Text: "关闭", OnClicked: func() { dlg.Cancel() }},
 					HSpacer{},
 					Label{AssignTo: &statusLbl, Text: "就绪", TextColor: walk.RGB(100, 100, 100)},

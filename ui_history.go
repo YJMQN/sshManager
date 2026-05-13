@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/lxn/walk"
 	. "github.com/lxn/walk/declarative"
@@ -166,6 +167,19 @@ func showDetailDlg(owner walk.Form, h *ExecHistory) {
 			Composite{
 				Layout: HBox{},
 				Children: []Widget{
+					PushButton{Text: "📥 导出日志", OnClicked: func() {
+						report := fmt.Sprintf("执行详情 #%d\n", h.ID) +
+							fmt.Sprintf("状态: %s\n", statusEmoji) +
+							fmt.Sprintf("目标连接: %s\n", h.ConnectionName) +
+							fmt.Sprintf("脚本: %s\n", h.ScriptName) +
+							fmt.Sprintf("解释器: %s\n", h.Interpreter) +
+							fmt.Sprintf("开始时间: %s\n", h.StartedAt) +
+							fmt.Sprintf("完成时间: %s\n", h.FinishedAt) +
+							fmt.Sprintf("耗时: %d ms\n\n", h.DurationMs) +
+							"=== stdout 输出 ===\n" + output + "\n\n" +
+							"=== stderr 错误 ===\n" + errText
+						exportText(dlg, report, fmt.Sprintf("history_%d_%s.txt", h.ID, time.Now().Format("20060102_150405")))
+					}},
 					HSpacer{},
 					PushButton{Text: "关闭", OnClicked: func() { dlg.Cancel() }},
 				},
