@@ -160,21 +160,9 @@ func showDetailDlg(owner walk.Form, h *ExecHistory) {
 				},
 			},
 			Label{Text: "stdout 输出:", Font: Font{PointSize: 9, Bold: true}},
-			TextEdit{
-				Text:     output,
-				ReadOnly: true,
-				Font:     Font{PointSize: 10, Family: "Consolas"},
-				MinSize:  Size{0, 120},
-				VScroll:  true,
-			},
+			FormattedOutput(output, 120),
 			Label{Text: "stderr 错误:", Font: Font{PointSize: 9, Bold: true}},
-			TextEdit{
-				Text:     errText,
-				ReadOnly: true,
-				Font:     Font{PointSize: 10, Family: "Consolas"},
-				MinSize:  Size{0, 80},
-				VScroll:  true,
-			},
+			FormattedOutput(errText, 80),
 			Composite{
 				Layout: HBox{},
 				Children: []Widget{

@@ -16,17 +16,18 @@ func openExecuteDlg() {
 
 func openExecuteDlgWithConn(connIdx int) {
 	var (
-		dlg        *walk.Dialog
-		connCB     *walk.ComboBox
-		scriptCB   *walk.ComboBox
-		outputTE   *walk.TextEdit
-		runBtn     *walk.PushButton
-		stopBtn    *walk.PushButton
-		statusLbl  *walk.Label
-		modeScript *walk.RadioButton
-		modeCmd    *walk.RadioButton
-		cmdInput   *walk.TextEdit
-		cmdLabel   *walk.Label
+		dlg                *walk.Dialog
+		connCB             *walk.ComboBox
+		scriptCB           *walk.ComboBox
+		outputTE           *RichText
+		outputPlaceholder  *walk.Composite
+		runBtn             *walk.PushButton
+		stopBtn            *walk.PushButton
+		statusLbl          *walk.Label
+		modeScript         *walk.RadioButton
+		modeCmd            *walk.RadioButton
+		cmdInput           *walk.TextEdit
+		cmdLabel           *walk.Label
 	)
 
 	conns, _ := db.GetConnections()
@@ -61,9 +62,14 @@ func openExecuteDlgWithConn(connIdx int) {
 	)
 
 	writeOut := func(text string) {
-		if outputTE != nil {
-			outputTE.AppendText(text)
+		if outputTE == nil {
+			var err error
+			outputTE, err = NewRichText(outputPlaceholder)
+			if err != nil {
+				return
+			}
 		}
+		FormatLogOutput(outputTE, text)
 	}
 
 	resetUI := func() {
@@ -151,7 +157,9 @@ func openExecuteDlgWithConn(connIdx int) {
 			Status:         "running",
 		})
 
-		outputTE.SetText("")
+		if outputTE != nil {
+			outputTE.Clear()
+		}
 		writeOut(fmt.Sprintf("===== %s =====\n", time.Now().Format("15:04:05")))
 		writeOut(fmt.Sprintf("▶ 连接: %s (%s:%d)\n", conn.Name, conn.Host, conn.Port))
 		if isCmdMode {
@@ -276,19 +284,18 @@ func openExecuteDlgWithConn(connIdx int) {
 						writeOut("\n⏹ 用户终止\n")
 						resetUI()
 					}},
-					PushButton{Text: "清空输出", OnClicked: func() { outputTE.SetText("") }},
+					PushButton{Text: "清空输出", OnClicked: func() { if outputTE != nil { outputTE.Clear() } }},
 					HSpacer{},
 					PushButton{Text: "关闭", OnClicked: func() { dlg.Cancel() }},
 				},
 			},
 			// Output area
 			Label{Text: "执行输出:"},
-			TextEdit{
-				AssignTo: &outputTE, ReadOnly: true,
-				Font:    Font{PointSize: 10, Family: "Consolas"},
-				MinSize: Size{0, 280},
-				VScroll: true,
-				MaxSize: Size{0, 1000},
+			Composite{
+				AssignTo: &outputPlaceholder,
+				Layout:   VBox{},
+				MinSize:  Size{0, 280},
+				MaxSize:  Size{0, 1000},
 			},
 			Label{AssignTo: &statusLbl, Text: "就绪", TextColor: walk.RGB(100, 100, 100)},
 		},
@@ -332,21 +339,27 @@ func openQuickExecDlg() {
 	hasScripts := len(scripts) > 0
 
 	var (
-		dlg       *walk.Dialog
-		scriptCB  *walk.ComboBox
-		outputTE  *walk.TextEdit
-		runBtn    *walk.PushButton
-		stopBtn   *walk.PushButton
-		statusLbl *walk.Label
-		mu        sync.Mutex
-		running   bool
-		cli       *SSHClient
+		dlg                *walk.Dialog
+		scriptCB           *walk.ComboBox
+		outputTE           *RichText
+		outputPlaceholder  *walk.Composite
+		runBtn             *walk.PushButton
+		stopBtn            *walk.PushButton
+		statusLbl          *walk.Label
+		mu                 sync.Mutex
+		running            bool
+		cli                *SSHClient
 	)
 
 	writeOut := func(text string) {
-		if outputTE != nil {
-			outputTE.AppendText(text)
+		if outputTE == nil {
+			var err error
+			outputTE, err = NewRichText(outputPlaceholder)
+			if err != nil {
+				return
+			}
 		}
+		FormatLogOutput(outputTE, text)
 	}
 
 	resetUI := func() {
@@ -421,7 +434,9 @@ func openQuickExecDlg() {
 							Status:         "running",
 						})
 
-						outputTE.SetText("")
+						if outputTE != nil {
+							outputTE.Clear()
+						}
 						writeOut(fmt.Sprintf("===== %s =====\n", time.Now().Format("15:04:05")))
 						writeOut(fmt.Sprintf("▶ 连接: %s (%s:%d)\n", conn.Name, conn.Host, conn.Port))
 						writeOut(fmt.Sprintf("▶ 脚本: %s | 解释器: %s\n", script.Name, script.Interpreter))
@@ -496,18 +511,17 @@ func openQuickExecDlg() {
 						writeOut("\n⏹ 用户终止\n")
 						resetUI()
 					}},
-					PushButton{Text: "清空", OnClicked: func() { outputTE.SetText("") }},
+					PushButton{Text: "清空", OnClicked: func() { if outputTE != nil { outputTE.Clear() } }},
 					HSpacer{},
 					PushButton{Text: "关闭", OnClicked: func() { dlg.Cancel() }},
 				},
 			},
 			// Output
 			Label{Text: "执行输出:"},
-			TextEdit{
-				AssignTo: &outputTE, ReadOnly: true,
-				Font:    Font{PointSize: 10, Family: "Consolas"},
-				MinSize: Size{0, 220},
-				VScroll: true,
+			Composite{
+				AssignTo: &outputPlaceholder,
+				Layout:   VBox{},
+				MinSize:  Size{0, 220},
 			},
 			Label{AssignTo: &statusLbl, Text: "就绪", TextColor: walk.RGB(100, 100, 100)},
 		},
@@ -535,15 +549,21 @@ func openQuickCmdDlg() {
 
 	var dlg *walk.Dialog
 	var cmdInput *walk.TextEdit
-	var outputTE *walk.TextEdit
+	var outputTE *RichText
+	var outputPlaceholder *walk.Composite
 	var runBtn, closeBtn *walk.PushButton
 	var statusLbl *walk.Label
 	var running bool
 
 	writeOut := func(text string) {
-		if outputTE != nil {
-			outputTE.AppendText(text)
+		if outputTE == nil {
+			var err error
+			outputTE, err = NewRichText(outputPlaceholder)
+			if err != nil {
+				return
+			}
 		}
+		FormatLogOutput(outputTE, text)
 	}
 
 	execFn := func() {
@@ -561,7 +581,9 @@ func openQuickCmdDlg() {
 			return
 		}
 
-		outputTE.SetText("")
+		if outputTE != nil {
+			outputTE.Clear()
+		}
 		writeOut(fmt.Sprintf("===== %s =====\n", time.Now().Format("15:04:05")))
 		writeOut(fmt.Sprintf("▶ %s (%s:%d)\n", conn.Name, conn.Host, conn.Port))
 		writeOut(fmt.Sprintf("▶ 命令: %s\n", cmdText))
@@ -632,11 +654,10 @@ func openQuickCmdDlg() {
 				},
 			},
 			Label{Text: "输出:"},
-			TextEdit{
-				AssignTo: &outputTE, ReadOnly: true,
-				Font:    Font{PointSize: 10, Family: "Consolas"},
-				MinSize: Size{0, 180},
-				VScroll: true,
+			Composite{
+				AssignTo: &outputPlaceholder,
+				Layout:   VBox{},
+				MinSize:  Size{0, 180},
 			},
 		},
 	}.Run(mainWnd)
