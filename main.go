@@ -11,6 +11,60 @@ import (
 	. "github.com/lxn/walk/declarative"
 )
 
+// ============================================================
+// UI Style Constants - Modern, Clean, Win7 Compatible
+// ============================================================
+
+// Colors
+var (
+	colorPrimary      = walk.RGB(0, 120, 215)    // Windows Blue
+	colorSuccessUI    = walk.RGB(0, 153, 102)    // Success Green
+	colorWarningUI    = walk.RGB(255, 140, 0)    // Warning Orange
+	colorErrorUI      = walk.RGB(220, 53, 69)    // Error Red
+	colorBackground   = walk.RGB(245, 245, 245)  // Light Gray Background
+	colorWhite        = walk.RGB(255, 255, 255)  // Pure White
+	colorTextMuted    = walk.RGB(128, 128, 128)  // Muted Text
+	colorTextDark     = walk.RGB(50, 50, 50)     // Dark Text
+	colorLink         = walk.RGB(0, 100, 200)    // Link Blue
+	colorTitle        = walk.RGB(0, 80, 160)     // Title Blue
+)
+
+// Fonts
+var (
+	fontUI       = Font{PointSize: 9, Family: "Microsoft YaHei"}
+	fontUIBold   = Font{PointSize: 9, Family: "Microsoft YaHei", Bold: true}
+	fontTitle    = Font{PointSize: 11, Family: "Microsoft YaHei", Bold: true}
+	fontCode     = Font{PointSize: 10, Family: "Consolas"}
+	fontCodeSmall = Font{PointSize: 9, Family: "Consolas"}
+)
+
+// Text Icons (Win7 compatible, no Emoji)
+const (
+	iconAdd       = "[+]"
+	iconEdit      = "[Edit]"
+	iconDelete    = "[Del]"
+	iconTest      = "[Test]"
+	iconFile      = "[File]"
+	iconRun       = "[Run]"
+	iconQuick     = "[Quick]"
+	iconRefresh   = "[Refresh]"
+	iconHistory   = "[History]"
+	iconExec      = "[Execute]"
+	iconUp        = "[Up]"
+	iconDownload  = "[Export]"
+	iconSearch    = "[Search]"
+	iconOK        = "[OK]"
+	iconCancel    = "[Cancel]"
+	iconCheck     = "[v]"
+	iconCross     = "[x]"
+	iconLoading   = "[...]"
+	iconWarning   = "[!]"
+	iconDB        = "[DB]"
+	iconConn      = "[Conn]"
+	iconScript    = "[Script]"
+	iconFolder    = "[Folder]"
+)
+
 // dbPath holds the current SQLite database path.
 //
 // Priority:
