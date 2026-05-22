@@ -19,6 +19,12 @@ func FormattedScript(content string, minHeight int) Widget {
 	return newFormattedPane(content, minHeight, false)
 }
 
+// FormattedCodeByType creates a Composite containing a RichText display widget
+// with syntax highlighting based on file type (sh, py, json, yaml).
+func FormattedCodeByType(content string, fileType string, minHeight int) Widget {
+	return newFormattedPaneByType(content, fileType, minHeight)
+}
+
 func newFormattedPane(content string, minHeight int, isLog bool) Widget {
 	var comp *walk.Composite
 	return Composite{
@@ -37,6 +43,26 @@ func newFormattedPane(content string, minHeight int, isLog bool) Widget {
 					} else {
 						FormatScriptContent(rt, content)
 					}
+				}
+			}
+		},
+	}
+}
+
+func newFormattedPaneByType(content string, fileType string, minHeight int) Widget {
+	var comp *walk.Composite
+	return Composite{
+		AssignTo: &comp,
+		Layout:   VBox{MarginsZero: true},
+		MinSize:  Size{0, minHeight},
+		Children: []Widget{},
+		OnBoundsChanged: func() {
+			// Create RichText child on first size calculation
+			if comp != nil && comp.Children().Len() == 0 {
+				rt, err := NewRichText(comp)
+				if err == nil {
+					rt.SetReadOnly(true)
+					FormatCodeByType(rt, content, fileType)
 				}
 			}
 		},
