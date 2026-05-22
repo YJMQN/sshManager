@@ -1,8 +1,10 @@
-// Syntax highlighting for shell scripts and execution logs.
+// Syntax highlighting for shell scripts, Python, JSON, YAML and execution logs.
 // Produces colored segments for use with RichText.AppendColored.
 package main
 
 import (
+	"encoding/json"
+	"path/filepath"
 	"regexp"
 	"strings"
 
@@ -29,7 +31,25 @@ var (
 	colorString   = walk.RGB(200, 140, 60)    // orange
 	colorVariable = walk.RGB(180, 120, 200)   // purple
 	colorNumber   = walk.RGB(200, 140, 60)    // orange
+	colorFunc     = walk.RGB(160, 80, 180)    // magenta for functions
 )
+
+// GetFileType determines the file type based on extension
+func GetFileType(filename string) string {
+	ext := strings.ToLower(filepath.Ext(filename))
+	switch ext {
+	case ".sh", ".bash":
+		return "sh"
+	case ".py":
+		return "py"
+	case ".json":
+		return "json"
+	case ".yaml", ".yml":
+		return "yaml"
+	default:
+		return "txt"
+	}
+}
 
 // Segment is a span of text with a single color.
 type Segment struct {
@@ -356,4 +376,478 @@ func FormatScriptContent(rt *RichText, text string) {
 			rt.AppendColored(seg.Text, seg.Color)
 		}
 	}
+}
+
+// FormatCodeByType formats and highlights code based on file type
+func FormatCodeByType(rt *RichText, text string, fileType string) {
+	if text == "" {
+		return
+	}
+	
+	var segs []Segment
+	switch fileType {
+	case "py":
+		segs = HighlightPython(text)
+	case "json":
+		segs = HighlightJSON(text)
+	case "yaml", "yml":
+		segs = HighlightYAML(text)
+	default:
+		segs = HighlightShellScript(text)
+	}
+	
+	for _, seg := range segs {
+		if seg.Text == "\n" {
+			rt.AppendText("\n")
+		} else {
+			rt.AppendColored(seg.Text, seg.Color)
+		}
+	}
+}
+
+// FormatCode formats code based on file type (indentation cleanup)
+func FormatCode(fileType string, content string) string {
+	switch fileType {
+	case "json":
+		return formatJSON(content)
+	case "sh", "bash":
+		return formatShell(content)
+	case "py":
+		return formatPython(content)
+	case "yaml", "yml":
+		return formatYAML(content)
+	default:
+		return content
+	}
+}
+
+// ============================================================
+// Python syntax highlighter
+// ============================================================
+
+var pythonKeywords = map[string]bool{
+	"def": true, "class": true, "import": true, "from": true, "as": true,
+	"if": true, "elif": true, "else": true, "while": true, "for": true, "in": true,
+	"try": true, "except": true, "finally": true, "with": true,
+	"return": true, "yield": true, "lambda": true,
+	"pass": true, "break": true, "continue": true,
+	"and": true, "or": true, "not": true,
+	"True": true, "False": true, "None": true,
+	"print": true, "len": true, "range": true,
+	"str": true, "int": true, "float": true,
+	"list": true, "dict": true, "set": true, "tuple": true,
+}
+
+var (
+	rePyComment  = regexp.MustCompile(`#[^\n]*`)
+	rePyString3  = regexp.MustCompile(`"""[\s\S]*?"""|'''[\s\S]*?'''`)
+	rePyString   = regexp.MustCompile(`"[^"\\]*(?:\\.[^"\\]*)*"|'[^'\\]*(?:\\.[^'\\]*)*'`)
+	rePyNumber   = regexp.MustCompile(`\b\d+\.?\d*(?:[eE][+-]?\d+)?\b`)
+	rePyFuncCall = regexp.MustCompile(`\b([a-zA-Z_][a-zA-Z0-9_]*)(?=\()`)
+)
+
+func highlightPythonLine(line string) []Segment {
+	if line == "" {
+		return nil
+	}
+
+	var segs []Segment
+	remaining := line
+	inSingleQuote := false
+	inDoubleQuote := false
+	inTripleSingle := false
+	inTripleDouble := false
+	escaped := false
+	buf := ""
+
+	flush := func(color walk.Color) {
+		if buf != "" {
+			segs = append(segs, Segment{Text: buf, Color: color})
+			buf = ""
+		}
+	}
+
+	for i := 0; i < len(remaining); i++ {
+		ch := remaining[i]
+
+		if escaped {
+			escaped = false
+			buf += string(ch)
+			continue
+		}
+
+		if ch == '\\' && (inDoubleQuote || inSingleQuote) {
+			escaped = true
+			buf += string(ch)
+			continue
+		}
+
+		// Check for triple quotes
+		if i+2 < len(remaining) {
+			triple := remaining[i : i+3]
+			if triple == `"""` && !inSingleQuote && !inTripleSingle {
+				if inTripleDouble {
+					buf += triple
+					flush(colorString)
+					inTripleDouble = false
+				} else {
+					flush(colorDefault)
+					buf = triple
+					inTripleDouble = true
+				}
+				i += 2
+				continue
+			}
+			if triple == `'''` && !inDoubleQuote && !inTripleDouble {
+				if inTripleSingle {
+					buf += triple
+					flush(colorString)
+					inTripleSingle = false
+				} else {
+					flush(colorDefault)
+					buf = triple
+					inTripleSingle = true
+				}
+				i += 2
+				continue
+			}
+		}
+
+		if inTripleSingle || inTripleDouble {
+			buf += string(ch)
+			continue
+		}
+
+		if ch == '\'' && !inDoubleQuote {
+			if inSingleQuote {
+				buf += string(ch)
+				flush(colorString)
+				inSingleQuote = false
+				continue
+			} else {
+				flush(colorDefault)
+				inSingleQuote = true
+				buf += string(ch)
+				continue
+			}
+		}
+
+		if ch == '"' && !inSingleQuote {
+			if inDoubleQuote {
+				buf += string(ch)
+				flush(colorString)
+				inDoubleQuote = false
+				continue
+			} else {
+				flush(colorDefault)
+				inDoubleQuote = true
+				buf += string(ch)
+				continue
+			}
+		}
+
+		if inSingleQuote || inDoubleQuote {
+			buf += string(ch)
+			continue
+		}
+
+		// Comment
+		if ch == '#' {
+			flush(colorDefault)
+			buf = remaining[i:]
+			flush(colorComment)
+			break
+		}
+
+		// Word boundary
+		if isIdentChar(ch) {
+			buf += string(ch)
+		} else {
+			if buf != "" {
+				if pythonKeywords[buf] {
+					flush(colorKeyword)
+				} else if rePyFuncCall.MatchString(buf + "(") {
+					flush(colorFunc)
+				} else if isNumber(buf) {
+					flush(colorNumber)
+				} else {
+					flush(colorDefault)
+				}
+			}
+			buf = string(ch)
+			flush(colorDefault)
+		}
+	}
+
+	if buf != "" {
+		if pythonKeywords[buf] {
+			flush(colorKeyword)
+		} else if isNumber(buf) {
+			flush(colorNumber)
+		} else {
+			flush(colorDefault)
+		}
+	}
+
+	return segs
+}
+
+// HighlightPython applies syntax highlighting to Python code
+func HighlightPython(script string) []Segment {
+	if script == "" {
+		return nil
+	}
+
+	lines := strings.Split(script, "\n")
+	var segs []Segment
+	for i, line := range lines {
+		lineSegs := highlightPythonLine(line)
+		if len(lineSegs) == 0 {
+			segs = append(segs, Segment{Text: "", Color: colorDefault})
+		} else {
+			segs = append(segs, lineSegs...)
+		}
+		if i < len(lines)-1 {
+			segs = append(segs, Segment{Text: "\n", Color: colorDefault})
+		}
+	}
+	return segs
+}
+
+// ============================================================
+// JSON syntax highlighter
+// ============================================================
+
+// HighlightJSON applies syntax highlighting to JSON content
+func HighlightJSON(content string) []Segment {
+	if content == "" {
+		return nil
+	}
+
+	var segs []Segment
+	remaining := content
+	inString := false
+	escaped := false
+	buf := ""
+
+	flush := func(color walk.Color) {
+		if buf != "" {
+			segs = append(segs, Segment{Text: buf, Color: color})
+			buf = ""
+		}
+	}
+
+	for i := 0; i < len(remaining); i++ {
+		ch := remaining[i]
+
+		if escaped {
+			escaped = false
+			buf += string(ch)
+			continue
+		}
+
+		if ch == '\\' && inString {
+			escaped = true
+			buf += string(ch)
+			continue
+		}
+
+		if ch == '"' {
+			if inString {
+				buf += string(ch)
+				flush(colorString)
+				inString = false
+			} else {
+				flush(colorDefault)
+				buf = string(ch)
+				inString = true
+			}
+			continue
+		}
+
+		if inString {
+			buf += string(ch)
+			continue
+		}
+
+		// Keywords and values
+		if ch == ':' || ch == ',' || ch == '{' || ch == '}' || ch == '[' || ch == ']' {
+			flush(colorDefault)
+			segs = append(segs, Segment{Text: string(ch), Color: colorKeyword})
+			continue
+		}
+
+		if ch == ' ' || ch == '\t' || ch == '\n' || ch == '\r' {
+			flush(colorDefault)
+			segs = append(segs, Segment{Text: string(ch), Color: colorDefault})
+			continue
+		}
+
+		// Collect word
+		buf += string(ch)
+		if i+1 >= len(remaining) || remaining[i+1] == ' ' || remaining[i+1] == '\t' ||
+			remaining[i+1] == '\n' || remaining[i+1] == ':' || remaining[i+1] == ',' ||
+			remaining[i+1] == '}' || remaining[i+1] == ']' {
+			word := strings.TrimSpace(buf)
+			if word != "" {
+				if word == "true" || word == "false" || word == "null" {
+					flush(colorKeyword)
+				} else if isNumber(word) {
+					flush(colorNumber)
+				} else {
+					flush(colorDefault)
+				}
+			}
+			buf = ""
+		}
+	}
+
+	if buf != "" {
+		flush(colorDefault)
+	}
+
+	return segs
+}
+
+// ============================================================
+// YAML syntax highlighter
+// ============================================================
+
+// HighlightYAML applies syntax highlighting to YAML content
+func HighlightYAML(content string) []Segment {
+	if content == "" {
+		return nil
+	}
+
+	lines := strings.Split(content, "\n")
+	var segs []Segment
+
+	for i, line := range lines {
+		trimmed := strings.TrimLeft(line, " \t")
+		
+		// Check for comment
+		if strings.HasPrefix(trimmed, "#") {
+			segs = append(segs, Segment{Text: line, Color: colorComment})
+		} else if strings.Contains(line, ":") {
+			// Key-value line
+			parts := strings.SplitN(line, ":", 2)
+			if len(parts) == 2 {
+				// Key part (including leading spaces for indentation visualization)
+				keyWithSpace := parts[0]
+				colonPos := strings.Index(keyWithSpace, ":")
+				if colonPos > 0 {
+					indent := keyWithSpace[:colonPos-len(strings.TrimLeft(keyWithSpace, " \t"))]
+					key := strings.TrimSpace(keyWithSpace)
+					value := parts[1]
+					
+					if indent != "" {
+						segs = append(segs, Segment{Text: indent, Color: colorDefault})
+					}
+					segs = append(segs, Segment{Text: key + ":", Color: colorKeyword})
+					
+					// Value part
+					if strings.TrimSpace(value) != "" {
+						if strings.HasPrefix(strings.TrimSpace(value), "\"") || 
+						   strings.HasPrefix(strings.TrimSpace(value), "'") {
+							segs = append(segs, Segment{Text: value, Color: colorString})
+						} else if isNumber(strings.TrimSpace(value)) {
+							segs = append(segs, Segment{Text: value, Color: colorNumber})
+						} else if strings.TrimSpace(value) == "true" || 
+								  strings.TrimSpace(value) == "false" ||
+								  strings.TrimSpace(value) == "null" ||
+								  strings.TrimSpace(value) == "~" {
+							segs = append(segs, Segment{Text: value, Color: colorKeyword})
+						} else {
+							segs = append(segs, Segment{Text: value, Color: colorDefault})
+						}
+					}
+				} else {
+					segs = append(segs, Segment{Text: line, Color: colorDefault})
+				}
+			} else {
+				segs = append(segs, Segment{Text: line, Color: colorDefault})
+			}
+		} else {
+			segs = append(segs, Segment{Text: line, Color: colorDefault})
+		}
+		
+		if i < len(lines)-1 {
+			segs = append(segs, Segment{Text: "\n", Color: colorDefault})
+		}
+	}
+
+	return segs
+}
+
+// ============================================================
+// Code formatting helpers
+// ============================================================
+
+func formatJSON(content string) string {
+	var obj interface{}
+	if err := json.Unmarshal([]byte(content), &obj); err != nil {
+		return content // Return original if invalid JSON
+	}
+	formatted, _ := json.MarshalIndent(obj, "", "  ")
+	return string(formatted)
+}
+
+func formatShell(content string) string {
+	lines := strings.Split(content, "\n")
+	var result []string
+	indentLevel := 0
+	baseIndent := "  "
+
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			result = append(result, "")
+			continue
+		}
+
+		// Decrease indent for closing keywords
+		if strings.HasPrefix(trimmed, "done") || strings.HasPrefix(trimmed, "fi") ||
+			strings.HasPrefix(trimmed, "esac") || strings.HasPrefix(trimmed, "}") {
+			indentLevel--
+			if indentLevel < 0 {
+				indentLevel = 0
+			}
+		}
+
+		result = append(result, strings.Repeat(baseIndent, indentLevel)+trimmed)
+
+		// Increase indent for opening keywords
+		if strings.HasSuffix(trimmed, "then") || strings.HasSuffix(trimmed, "do") ||
+			strings.HasSuffix(trimmed, "else") || strings.HasSuffix(trimmed, "{") ||
+			strings.HasPrefix(trimmed, "case ") {
+			indentLevel++
+		}
+	}
+	return strings.Join(result, "\n")
+}
+
+func formatPython(content string) string {
+	// Basic Python formatting: clean up extra blank lines while preserving indentation
+	lines := strings.Split(content, "\n")
+	var result []string
+	prevEmpty := false
+
+	for _, line := range lines {
+		isEmpty := len(strings.TrimSpace(line)) == 0
+		if isEmpty {
+			if !prevEmpty {
+				result = append(result, "")
+			}
+			prevEmpty = true
+		} else {
+			result = append(result, line) // Preserve original indentation
+			prevEmpty = false
+		}
+	}
+	return strings.Join(result, "\n")
+}
+
+func formatYAML(content string) string {
+	// YAML formatting is complex; return as-is to preserve indentation
+	return content
 }
